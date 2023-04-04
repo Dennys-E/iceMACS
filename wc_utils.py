@@ -1,4 +1,3 @@
-import numpy as np
 import matplotlib.pyplot as plt
 import subprocess
 from jinja2 import Template, StrictUndefined
@@ -11,14 +10,14 @@ import shutil
 import itertools as it
 from multiprocessing import Pool
 import sys
-sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
 import luti
 from luti.xarray import invert_data_array
 from luti import Alphachecker, NeighbourInterpolator
 
 
 UVSPEC_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/bin/uvspec"
-
+# Luti path
+sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
 
 def spec_plot(output_file, phi_array, umu_array):
     
@@ -190,18 +189,16 @@ def get_wc_reflectivity(args):
 def get_ic_reflectivity(args):
     
     """Returns the uvspec output for a single ice cloud. Input params are passed as a single zipped argument and listed below. 
-    Function is currently being called by a map function in 'writeLUT', such that 'wc_property_indices' is iterable. This
+    Function is currently being called by a map function in 'writeLUT', such that 'cloud_property_indices' is iterable. This
     allows for parallel computing of the LUT. wc and ic cloud function so far are not very different, only the height of the 
     cloud is different and the template file is adapted to call the ice parameterizations in libradtran. Optical properties and 
     computation are so far identical.
     """
-    
-    # For simplicity, lets first inlude crystal habit here. 
         
-    wc_property_indices, wvl_array, phi_array, umu_array, isza,\
+    cloud_property_indices, wvl_array, phi_array, umu_array, isza,\
     sza_array, r_eff_array, tau550_array, phi0, cloud_top_distance, wvl_grid_file_path, ic_habit, ic_properties = args
         
-    ir_eff, itau550 = wc_property_indices
+    ir_eff, itau550 = cloud_property_indices
     
     r_eff = r_eff_array[ir_eff]
     tau550 = tau550_array[itau550]
@@ -256,14 +253,13 @@ def get_ic_reflectivity(args):
     return uvspec_result
 
 
-def write_LUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array, tau550_array,
-              phi0=270, cloud_top_distance=1, ic_habit = None, delete=True, CPUs=8):
+def write_wcLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array, tau550_array,
+              phi0=270, cloud_top_distance=1, delete=True, CPUs=8):
     
-    """Generates lookup table for specified ranges and grid points and writes file as netCDF to specified paths. Cloud file 
-    format and positon as well as uvspec input file template are specified in the function. If a ice crystal habit is specified 
-    as keyword argument, get_ic_reflectivity is called. Otherwise a watercloud is generated. Sun position phi0 is east by 
-    default but can be changed. Default distance from cloud is 1km. 'CPUs' gives number of cores on which the function is 
-    run in parallel.
+    """Generates water cloud lookup table for specified ranges and grid points and writes file as netCDF to specified paths.
+    Cloud file format and positon as well as uvspec input file template are specified in the function. Sun position phi0 is 
+    east by default but can be changed. Default distance from cloud is 1km. 'CPUs' gives number of cores on which the function 
+    is run in parallel.
     """
     
     start_time = timer()
@@ -424,7 +420,8 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
     
     print("Start libRadtran simulation...")
         
-    # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'.
+    # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
+    # Should actually be the same as get_index_combinations. --> Check later and move to tools.py
     first_part = np.array(list(it.combinations_with_replacement(np.arange(len(r_eff_array)), 2)))
     second_part = np.flip(np.array(list(it.combinations(np.arange(len(r_eff_array)), 2))), axis=1)
     wc_index_array = np.concatenate((first_part, second_part))
