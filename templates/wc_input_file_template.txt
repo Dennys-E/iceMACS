@@ -1,0 +1,30 @@
+{# Simple libRadtran input file template #}
+
+data_files_path /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data
+atmosphere_file /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data/atmmod/afglus.dat
+
+source solar
+
+mol_abs_param reptran coarse
+
+#wavelength {{ wvl_LowerLimit }} {{ wvl_UpperLimit }}
+wavelength_grid_file {{ wavelength_grid_file_path }}
+
+sza {{ sza }}
+phi0 {{ phi0 }}
+
+umu {{ umu }}
+phi {{ phi }}
+
+zout {{ zout }}
+
+albedo 0.05
+
+wc_file 1D {{ cloud_file_path }}
+wc_modify tau550 set {{tau550}}
+wc_properties mie interpolate
+
+output_user wavelength uu
+output_quantity reflectivity
+
+verbose
