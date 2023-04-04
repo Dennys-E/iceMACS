@@ -123,3 +123,8 @@ def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None
     else:
         
         return nfails, npoints, mean_r_eff_diff, mean_tau550_diff, r_eff_RMS, tau550_RMS
+    
+    
+def sanity_check(LUTcut, wvl1, wvl2):
+    get_retrieval_stats(LUTcut, LUTcut, wvl1, wvl2)
+    return
