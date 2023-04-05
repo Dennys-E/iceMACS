@@ -89,7 +89,8 @@ def get_uvspec_output(input_file_path, temp_path):
 
 def get_index_combinations(length):
     
-    """Returns all relevant index combinations for two arrays (e.g. of cloud parameters) with the same length, while exluding redundant combinations."""
+    """Returns all relevant index combinations for two arrays (e.g. of cloud parameters) with the same length, while exluding 
+    redundant combinations."""
     
     first_part = np.array(list(it.combinations_with_replacement(np.arange(length), 2)))
     second_part = np.flip(np.array(list(it.combinations(np.arange(length), 2))), axis=1)

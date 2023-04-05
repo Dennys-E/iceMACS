@@ -20,13 +20,47 @@ from luti import Alphachecker, NeighbourInterpolator
 
 
 
-def read_LUT(LUTpath):
+def read_LUT(LUTpath, rename = True):
     
     LUT = nc.Dataset(LUTpath)
-    LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).rename({"__xarray_dataarray_variable__" : "reflectivity"})
+    if rename:
+        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).rename({"__xarray_dataarray_variable__" : "reflectivity"})
+    else:
+        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
     
     return LUT
 
+
+def show_LUT(LUT, wvl1, wvl2, fname=None):
+    """Takes a LUT for one perspective and returns an overview of plots to display the data. Does not retrieve any values."""
+    
+    fig, ax = plt.subplots(figsize=(16,6))
+    LUTcut1 = LUT.sel(wvl=wvl2)
+    LUTcut2 = LUT.sel(wvl=wvl1)
+
+    for r_eff in LUT.coords['r_eff'].values:
+        ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
+                linewidth=1, label=np.round(r_eff, 2))
+
+    for tau550 in range(len(LUT.coords['tau550'])):
+        ax.plot(LUTcut1.isel(tau550=tau550).reflectivity.to_numpy(), LUTcut2.isel(tau550=tau550).reflectivity.to_numpy(),
+                "--", color="black",
+                linewidth=0.7)
+        
+        x = np.max(LUTcut1.isel(tau550=tau550).reflectivity.to_numpy())
+        y = np.max(LUTcut2.isel(tau550=tau550).reflectivity.to_numpy())
+        if tau550<15 and tau550>0:
+            plt.text(x,y, r"$\tau=$"+str(tau550), fontsize=11)
+
+    ax.set_xlabel("Reflectivity at "+str(wvl1)+"nm")
+    ax.set_ylabel("Reflectivity at "+str(wvl2)+"nm")
+    ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
+    
+    plt.show()
+    
+    if fname is not None:
+        plt.savefig(fname, dpi=300)
+        
 
 def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None):
     """Takes a reference LUT and measured values and returns the retrieval accuracy.
@@ -50,12 +84,16 @@ def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None
     errors = np.zeros((len(reflectivity_array), 2))
     diffs = np.zeros((len(reflectivity_array), 2))
     for line in range(len(reflectivity_array)):
-        diffs[line, 0]=inverted.sel(input_params="r_eff", Rone=measured_R1[line], Rtwo=measured_R2[line]).values - cloud_param_array[line,0]
-        diffs[line, 1]=inverted.sel(input_params="tau550", Rone=measured_R1[line], Rtwo=measured_R2[line]).values - cloud_param_array[line,1]
+        diffs[line, 0]=inverted.sel(input_params="r_eff", 
+                                    Rone=measured_R1[line], Rtwo=measured_R2[line]).values - cloud_param_array[line,0]
+        diffs[line, 1]=inverted.sel(input_params="tau550", 
+                                    Rone=measured_R1[line], Rtwo=measured_R2[line]).values - cloud_param_array[line,1]
         errors[line, 0]=diffs[line,0]**2
         errors[line, 1]=diffs[line,1]**2
-    r_eff_errors, tau550_errors = [error for error in errors[:,0] if not np.isnan(error)], [error for error in errors[:,1] if not np.isnan(error)]
-    r_eff_diffs, tau550_diffs = [diff for diff in diffs[:,0] if not np.isnan(diff)], [diff for diff in diffs[:,1] if not np.isnan(diff)]
+    r_eff_errors, tau550_errors = [error for error in errors[:,0] if not np.isnan(error)], \
+    [error for error in errors[:,1] if not np.isnan(error)]
+    r_eff_diffs, tau550_diffs = [diff for diff in diffs[:,0] if not np.isnan(diff)], \
+    [diff for diff in diffs[:,1] if not np.isnan(diff)]
     
     nfails = len(reflectivity_array)-len(errors)
     npoints = len(reflectivity_array)
@@ -118,7 +156,7 @@ def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None
         print("RMS effective radius: ", np.round(r_eff_RMS, 4), 
               " | RMS optical thickness: ", np.round(tau550_RMS, 4))
         
-        return 
+        return
     
     else:
         

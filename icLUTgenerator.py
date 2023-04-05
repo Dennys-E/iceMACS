@@ -119,10 +119,12 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
         
     # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
     # Should actually be the same as get_index_combinations. --> Check later and move to tools.py
-    first_part = np.array(list(it.combinations_with_replacement(np.arange(len(r_eff_array)), 2)))
-    second_part = np.flip(np.array(list(it.combinations(np.arange(len(r_eff_array)), 2))), axis=1)
-    wc_index_array = np.concatenate((first_part, second_part))
-    wc_index_vector = [(line[0], line[1]) for line in wc_index_array]
+    #first_part = np.array(list(it.combinations_with_replacement(np.arange(len(r_eff_array)), 2)))
+    #second_part = np.flip(np.array(list(it.combinations(np.arange(len(r_eff_array)), 2))), axis=1)
+    #cloud_index_array = np.concatenate((first_part, second_part))
+    
+    cloud_index_array = get_index_combinations(len(r_eff_array))
+    cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
         
     # Looping over entries in data array
     for ihabit in range(len(ic_habit_array)):
@@ -132,7 +134,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
             current_sza_start_time = timer()
 
             with Pool(processes = CPUs) as p:
-                uvspec_results = p.map(get_ic_reflectivity, zip(wc_index_vector,it.repeat(wvl_array),it.repeat(phi_array),
+                uvspec_results = p.map(get_ic_reflectivity, zip(cloud_index_vector,it.repeat(wvl_array),it.repeat(phi_array),
                                                                 it.repeat(umu_array), it.repeat(isza), it.repeat(sza_array),
                                                                 it.repeat(r_eff_array), it.repeat(tau550_array), 
                                                                 it.repeat(phi0), it.repeat(cloud_top_distance),
@@ -141,16 +143,15 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
             p.close()
 
 
-            for icloud in range(len(wc_index_array)):
-                ir_eff, itau550 = wc_index_array[icloud]
+            for icloud in range(len(cloud_index_array)):
+                ir_eff, itau550 = cloud_index_array[icloud]
 
                 for iwvl in range(len(wvl_array)):
                     for iumu in range(len(umu_array)):
                         for iphi in range(len(phi_array)):
                             # Write entry. uvspec_result[iwvl, iumu*len(phi_array) + iphi + 1] Is adapted to 
                             # specific uvspec output file format specified in input file. See template. 'icloud' iterates 
-                            # over
-                            # r_eff and tau550 combinations returned by pool.map
+                            # over r_eff and tau550 combinations returned by pool.map
                             reflectivity[iwvl, iphi, iumu, isza, ir_eff, itau550, ihabit] = \
                             np.array(uvspec_results)[icloud ,iwvl, iumu*len(phi_array) + iphi + 1]
     
