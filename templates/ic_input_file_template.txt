@@ -1,5 +1,3 @@
-{# Standard libRadtran input file template used by the python functions#}
-
 data_files_path /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data
 atmosphere_file /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data/atmmod/afglus.dat
 
@@ -17,11 +15,6 @@ umu {{ umu }}
 phi {{ phi }}
 
 zout {{ zout }}
-
-#albedo 0.05
-#albedo_library IGBP
-#brdf_rpv_library IGBP
-#brdf_rpv_type 17 #ocean_water
 
 brdf_cam u10 7 # Other variables set to default
 

@@ -1,4 +1,3 @@
-from .background_tools import *
 import numpy as np
 import matplotlib.pyplot as plt
 import subprocess
@@ -11,12 +10,136 @@ import tempfile
 import shutil
 import itertools as it
 from multiprocessing import Pool
-import sys
-# Luti path
-sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
-import luti
-from luti.xarray import invert_data_array
-from luti import Alphachecker, NeighbourInterpolator
+import tempfile
+import subprocess
+
+LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
+UVSPEC_PATH = LIBRADTRAN_PATH+"/bin/uvspec"
+
+def load_solar_flux_kurudz():
+    solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
+
+    solar_flux = xr.DataArray(data=solar_flux[:,1], dims=["wavelength"], 
+                                        coords=dict(wavelength = solar_flux[:,0],), 
+                                        attrs=dict(measurement="Solar flux as in Kurudz", 
+                                        units="mW m**-2 nm**-1",))
+
+    solar_flux.wavelength.attrs["units"] = r'nm'
+    
+    return solar_flux
+
+def write_wavelength_grid_file(fpath, wvl_array):
+    """Saves array as formated txt to be passed to uvspec"""
+    np.savetxt(fpath, wvl_array, delimiter=' ')
+    
+    return
+
+
+def write_cloud_file(fpath, altitude_grid, WC_array, r_eff_array):
+    
+    if any([len(altitude_grid)!=len(WC_array), len(altitude_grid)!=len(WC_array)]):
+        print('WARNING: Cloud properties do not fit altitude grid!')
+        
+    cloud_array = np.transpose(np.vstack((np.flip(altitude_grid), np.flip(WC_array), np.flip(r_eff_array))))
+    np.savetxt(fpath, cloud_array, delimiter=' ')
+    
+    return
+
+
+def write_input_file(input_file_template_path, generated_input_file_path, input_file_args):
+    
+    f = open(input_file_template_path, 'r')
+    input_file_template = f.read()
+    f.close()
+
+    j2_template = Template(input_file_template, undefined=StrictUndefined)
+
+    generated_input_file = j2_template.render(input_file_args)
+
+    f = open(generated_input_file_path, 'w')
+    f.write(generated_input_file)
+    f.close()
+    
+    return
+
+
+def save_uvspec_output_under(input_file_path, output_file_path):
+    
+    f = open(input_file_path, 'r')
+    input_file = f.read()
+    f.close()
+
+    result = subprocess.run([UVSPEC_PATH], input = input_file, capture_output=True, encoding='ascii')
+
+    output_temp = result.stdout
+    
+    f = open(output_file_path, 'w')
+    f.write(output_temp)
+    f.close()
+    
+    return
+
+
+def get_uvspec_output(input_file_path, temp_path):
+    
+    """To ensure correct format of returned file, uvspec output is temporarily saved in specified directory. If argument delete 
+    is True, this file is cleaned before function closes. Argument uniqueness was implemented to protect the temporary file if 
+    function is run multiple times in parallel.
+    """
+    
+    f = open(input_file_path, 'r')
+    input_file = f.read()
+    f.close()
+
+    result = subprocess.run([UVSPEC_PATH], input = input_file, capture_output=True, encoding='ascii')
+
+    output_temp = result.stdout
+    
+    f = open(temp_path, 'w')
+    f.write(output_temp)
+    f.close()
+    
+    f = open(temp_path, 'r')
+    return_value = np.loadtxt(f)
+    f.close()
+    
+    return return_value
+
+
+def get_index_combinations(length):
+    
+    """Returns all relevant index combinations for two arrays (e.g. of cloud parameters) with the same length, while exluding 
+    redundant combinations."""
+    
+    first_part = np.array(list(it.combinations_with_replacement(np.arange(length), 2)))
+    second_part = np.flip(np.array(list(it.combinations(np.arange(length), 2))), axis=1)
+    cloud_index_array = np.concatenate((first_part, second_part))
+    
+    return cloud_index_array
+
+
+def get_measurement_arrays(measurementLUT, wvl1, wvl2):
+    """Takes a LUT containing measurements and knowledge about the corresponsing "correct" values for r_eff and tau550. Returns 
+    arrays containing all relevant combinations to be passed to the luti invert_data_array function."""
+    
+    LUTcut = measurementLUT
+    r_eff_array = LUTcut.coords["r_eff"]
+    cloud_index_array = get_index_combinations(len(r_eff_array))
+
+    cloud_param_array = np.zeros(np.shape(cloud_index_array))
+    reflectivity_array = np.zeros(np.shape(cloud_index_array))
+
+    for line in range(len(cloud_index_array)):
+        ir_eff = cloud_index_array[line,0]
+        itau550 = cloud_index_array[line,1]
+
+        cloud_param_array[line,0]=LUTcut.coords["r_eff"].values[ir_eff]
+        cloud_param_array[line,1]=LUTcut.coords["tau550"].values[itau550]
+
+        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl1).reflectivity.values
+        reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl2).reflectivity.values
+    
+    return reflectivity_array, cloud_param_array
 
 
 def get_ic_reflectivity(args):
@@ -38,8 +161,8 @@ def get_ic_reflectivity(args):
         
     temp_dir_path = tempfile.mkdtemp()
         
-    cloud_file_path = temp_dir_path+'temp_cloud_file.dat'
-    generated_input_file_path = temp_dir_path+'temp_input.inp'
+    cloud_file_path = temp_dir_path+'/temp_cloud_file.dat'
+    generated_input_file_path = temp_dir_path+'/temp_input.inp'
         
     if len(r_eff_array) is not len(tau550_array):
         print("Cloud property arrays must have the same shape!")
@@ -78,7 +201,7 @@ def get_ic_reflectivity(args):
     input_file_template_path = 'InputFiles/ic_input_file_template.txt'
                             
     write_input_file(input_file_template_path, generated_input_file_path, input_file_args)
-    uvspec_result = get_uvspec_output(generated_input_file_path, temp_dir_path+'temp_output.txt')
+    uvspec_result = get_uvspec_output(generated_input_file_path, temp_dir_path+'/temp_output.txt')
         
     # Delete tree of temporary dir
     shutil.rmtree(temp_dir_path, ignore_errors=True)
@@ -87,12 +210,12 @@ def get_ic_reflectivity(args):
 
 
 def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array, tau550_array, ic_habit_array,
-              phi0=270, cloud_top_distance=1, ic_properties = "baum_v36 interpolate", delete=True, CPUs=8, description=""):
+              phi0=270, cloud_top_distance=1, ic_properties = "baum_v36", delete=True, CPUs=8, description=""):
     
     """Generates lookup table for specified ranges and grid points and writes file as netCDF to specified paths. Cloud file 
     format and positon as well as uvspec input file template are specified in the function. Sun position phi0 is east by 
     default but can be changed. Default distance from cloud is 1km. ic_properties can also be changed as keyword argument, 
-    otherwise yang2013 is default.'CPUs' gives number of cores on which the function is run in parallel.
+    otherwise baum_v36 is default.'CPUs' gives number of cores on which the function is run in parallel.
     """
     
     start_time = timer()
@@ -118,11 +241,6 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
     print("Start libRadtran simulation...")
         
     # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
-    # Should actually be the same as get_index_combinations. --> Check later and move to tools.py
-    #first_part = np.array(list(it.combinations_with_replacement(np.arange(len(r_eff_array)), 2)))
-    #second_part = np.flip(np.array(list(it.combinations(np.arange(len(r_eff_array)), 2))), axis=1)
-    #cloud_index_array = np.concatenate((first_part, second_part))
-    
     cloud_index_array = get_index_combinations(len(r_eff_array))
     cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
         
@@ -132,7 +250,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
         print("Computing habit: ", ic_habit)
         for isza in range(len(sza_array)):
             current_sza_start_time = timer()
-
+            print("Open pool...")
             with Pool(processes = CPUs) as p:
                 uvspec_results = p.map(get_ic_reflectivity, zip(cloud_index_vector,it.repeat(wvl_array),it.repeat(phi_array),
                                                                 it.repeat(umu_array), it.repeat(isza), it.repeat(sza_array),
@@ -141,7 +259,8 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
                                                                 it.repeat(wvl_grid_file_path), it.repeat(ic_habit),
                                                                 it.repeat(ic_properties)))
             p.close()
-
+            print("Pool closed")
+            print(np.shape(uvspec_results))
 
             for icloud in range(len(cloud_index_array)):
                 ir_eff, itau550 = cloud_index_array[icloud]
@@ -152,6 +271,8 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
                             # Write entry. uvspec_result[iwvl, iumu*len(phi_array) + iphi + 1] Is adapted to 
                             # specific uvspec output file format specified in input file. See template. 'icloud' iterates 
                             # over r_eff and tau550 combinations returned by pool.map
+                            
+
                             reflectivity[iwvl, iphi, iumu, isza, ir_eff, itau550, ihabit] = \
                             np.array(uvspec_results)[icloud ,iwvl, iumu*len(phi_array) + iphi + 1]
     
@@ -199,7 +320,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
             input_template = template,)
     )
     
-    LUT.rename("reflectivity")
+    LUT.rename("reflectivity") #necessary? LUT = LUT.rename
     
     LUT.wvl.attrs["units"] = r'nm'
     LUT.phi.attrs["units"] = r'degrees'

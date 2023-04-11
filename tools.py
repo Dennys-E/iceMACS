@@ -17,8 +17,40 @@ sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/P
 import luti
 from luti.xarray import invert_data_array
 from luti import Alphachecker, NeighbourInterpolator
+import pvlib
+
+def add_reflectivity_variable(measurement, nas_file):
+    """Adds an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the radiance 
+    measurements."""
+    
+    solar_positions = get_solar_positions(nas_file)
+    solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
+        
+    solar_flux = load_solar_flux_kurudz()
+    solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
+    
+    measurement["reflectivity"] = measurement["radiance"]*np.pi/(solar_flux_resampled* \
+                                                                np.cos(2.*np.pi*solar_positions_resampled.zenith/360.))
+    
+    return
 
 
+def get_solar_positions(nas_file, assumed_cloud_height=0.):
+    solar_positions = pvlib.solarposition.get_solarposition(nas_file.time, nas_file.lon, nas_file.lat,
+                                                             altitude=assumed_cloud_height)
+
+    solar_positions = solar_positions.to_xarray()
+    solar_positions = solar_positions.rename({'index':'time'})
+    
+    return solar_positions
+
+
+def find_nearest_gridpoint(coordinate_array, value):
+    """Takes the coordinate array of an xarray dataarray (of the form da.coordinate) and returns the index matching the closest 
+    gridpoint to value.""" 
+    array = np.asarray(coordinate_array.values)
+    index = (np.abs(array - value)).argmin()
+    return index
 
 def read_LUT(LUTpath, rename = True):
     
@@ -31,10 +63,10 @@ def read_LUT(LUTpath, rename = True):
     return LUT
 
 
-def show_LUT(LUT, wvl1, wvl2, fname=None):
+def show_LUT(LUT, wvl1, wvl2, save_under=None):
     """Takes a LUT for one perspective and returns an overview of plots to display the data. Does not retrieve any values."""
     
-    fig, ax = plt.subplots(figsize=(16,6))
+    fig, ax = plt.subplots(figsize=(16,16))
     LUTcut1 = LUT.sel(wvl=wvl2)
     LUTcut2 = LUT.sel(wvl=wvl1)
 
@@ -42,24 +74,25 @@ def show_LUT(LUT, wvl1, wvl2, fname=None):
         ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
                 linewidth=1, label=np.round(r_eff, 2))
 
-    for tau550 in range(len(LUT.coords['tau550'])):
-        ax.plot(LUTcut1.isel(tau550=tau550).reflectivity.to_numpy(), LUTcut2.isel(tau550=tau550).reflectivity.to_numpy(),
+    for tau550 in LUT.coords['tau550'].values:
+        ax.plot(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy(), LUTcut2.sel(tau550=tau550).reflectivity.to_numpy(),
                 "--", color="black",
                 linewidth=0.7)
         
-        x = np.max(LUTcut1.isel(tau550=tau550).reflectivity.to_numpy())
-        y = np.max(LUTcut2.isel(tau550=tau550).reflectivity.to_numpy())
-        if tau550<15 and tau550>0:
-            plt.text(x,y, r"$\tau=$"+str(tau550), fontsize=11)
+        x = np.max(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy())
+        y = np.max(LUTcut2.sel(tau550=tau550).reflectivity.to_numpy())
+        #if tau550<15 and tau550>0:
+         #   plt.text(x,y, r"$\tau=$"+str(tau550), fontsize=11)
 
     ax.set_xlabel("Reflectivity at "+str(wvl1)+"nm")
     ax.set_ylabel("Reflectivity at "+str(wvl2)+"nm")
     ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
     
+    if save_under is not None:
+        plt.savefig(save_under)
+        
     plt.show()
-    
-    if fname is not None:
-        plt.savefig(fname, dpi=300)
+    return
         
 
 def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None):
