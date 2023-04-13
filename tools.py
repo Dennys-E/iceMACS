@@ -1,4 +1,3 @@
-from .background_tools import *
 import numpy as np
 import matplotlib.pyplot as plt
 import subprocess
@@ -18,24 +17,30 @@ import luti
 from luti.xarray import invert_data_array
 from luti import Alphachecker, NeighbourInterpolator
 import pvlib
+from .icLUTgenerator import *
+import macstrace
 
-def add_reflectivity_variable(measurement, nas_file):
+def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
     """Adds an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the radiance 
     measurements."""
     
-    solar_positions = get_solar_positions(nas_file)
+    solar_positions = get_solar_positions(nas_file, mounttree_file_path)
     solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
         
     solar_flux = load_solar_flux_kurudz()
     solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
     
     measurement["reflectivity"] = measurement["radiance"]*np.pi/(solar_flux_resampled* \
-                                                                np.cos(2.*np.pi*solar_positions_resampled.zenith/360.))
+                                                                np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
     
     return
 
 
-def get_solar_positions(nas_file, assumed_cloud_height=0.):
+def get_solar_positions(nas_file, mounttree_file_path):
+    
+    """Calculates solar positions based on location of halo, given in nas file. Used 
+    formerly:
+    --------
     solar_positions = pvlib.solarposition.get_solarposition(nas_file.time, nas_file.lon, nas_file.lat,
                                                              altitude=assumed_cloud_height)
 
@@ -43,14 +48,13 @@ def get_solar_positions(nas_file, assumed_cloud_height=0.):
     solar_positions = solar_positions.rename({'index':'time'})
     
     return solar_positions
+    --------
+    but now uses the macstrace package. """
+    
+    # Correct
+    sun = macstrace.Ephemeris.Sun.from_datasets(mounttree_file_path, nas_file)
+    return sun.get_sza_az(time=nas_file.time.values)
 
-
-def find_nearest_gridpoint(coordinate_array, value):
-    """Takes the coordinate array of an xarray dataarray (of the form da.coordinate) and returns the index matching the closest 
-    gridpoint to value.""" 
-    array = np.asarray(coordinate_array.values)
-    index = (np.abs(array - value)).argmin()
-    return index
 
 def read_LUT(LUTpath, rename = True):
     
@@ -67,8 +71,8 @@ def show_LUT(LUT, wvl1, wvl2, save_under=None):
     """Takes a LUT for one perspective and returns an overview of plots to display the data. Does not retrieve any values."""
     
     fig, ax = plt.subplots(figsize=(16,16))
-    LUTcut1 = LUT.sel(wvl=wvl2)
-    LUTcut2 = LUT.sel(wvl=wvl1)
+    LUTcut1 = LUT.sel(wvl=wvl1)
+    LUTcut2 = LUT.sel(wvl=wvl2)
 
     for r_eff in LUT.coords['r_eff'].values:
         ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
