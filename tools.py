@@ -12,13 +12,103 @@ import itertools as it
 from multiprocessing import Pool
 import sys
 # Luti path
-sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
+#sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
 import luti
 from luti.xarray import invert_data_array
 from luti import Alphachecker, NeighbourInterpolator
 import pvlib
 from .icLUTgenerator import *
 import macstrace
+
+def save_as_netcdf(xr_data, fpath):
+    """Avoids permission issues with xarray not overwriting existing files."""
+    try: 
+        os.remove(fpath)
+    except:
+        pass
+    
+    xr_data.to_netcdf(fpath)
+    return
+
+
+def retrieve_image(LUTpath, wvl1, wvl2, merged_data):
+    
+    time_array = merged_data.time.values
+    
+    result = np.array(list(map(retrieve_line, it.repeat(LUTpath), 
+                               it.repeat(wvl1), it.repeat(wvl2), 
+                               it.repeat(merged_data), 
+                               time_array)))
+    
+    r_eff = xr.DataArray(
+            data=result[:,:,0],
+            dims=["time", "x"],
+            coords=dict(
+                time = time_array,
+                x = merged_data.x.values),
+            attrs=dict(
+                measurement="Effective radius",
+                units=r'$\mu $m',)
+        )
+    r_eff = r_eff.rename('r_eff')
+    
+    tau550 = xr.DataArray(
+            data=result[:,:,1],
+            dims=["time", "x"],
+            coords=dict(
+                time = time_array,
+                x = merged_data.x.values),
+            attrs=dict(
+                measurement="Optical thickness at 550 nm",
+                units=r'',)
+        )
+    tau550 = tau550.rename('tau550')
+    
+    return r_eff, tau550
+
+
+def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, CPUs=10):
+    
+    line = merged_data.sel(time=time)
+    geometry = line.sel(wavelength = wvl1, method='nearest')
+        
+    Rone = np.array(line.sel(wavelength=wvl1, method='nearest').reflectivity.values)
+    Rtwo = np.array(line.sel(wavelength=wvl2, method='nearest').reflectivity.values)
+        
+    umu = np.array(geometry.umu.values)
+    phi = np.array(geometry.phi.values)
+    
+    with Pool(processes = CPUs) as p:
+        cloud_params = p.map(retrieve_pixel, zip(it.repeat(LUTpath),                                        
+                                                         it.repeat(wvl1), it.repeat(wvl2), 
+                                                         Rone, Rtwo, umu, phi))
+    p.close()
+    
+    cloud_params = np.array(list(cloud_params))
+    print(".", end='')
+
+    return cloud_params
+
+
+def retrieve_pixel(args):
+    """Takes LUT and the two reflectivity positions to retrieve cloud parameter tuple for specific viewing angle."""
+    LUTpath, wvl1, wvl2, Rone, Rtwo, umu, phi = args
+    
+    checker=Alphachecker()
+    
+    LUT = read_LUT(LUTpath)
+    LUT = LUT.isel(ic_habit=0)
+    
+    Rone, Rtwo = [Rone], [Rtwo]
+    LUTcut = LUT.sel(wvl=[wvl1,wvl2], phi=phi, umu=umu, method='nearest')
+    LUTcut.coords["wvl"]=("wvl",["Rone", "Rtwo"])
+    inverted = invert_data_array(LUTcut.reflectivity, input_params=["r_eff", "tau550"], output_dim="wvl",                        
+                                 output_grid={"Rone":Rone, "Rtwo":Rtwo}, checker=Alphachecker(alpha=0.5))
+    r_eff = np.double(inverted.sel(input_params='r_eff').values)
+    tau550 = np.double(inverted.sel(input_params='tau550').values)
+    
+    return r_eff, tau550
+
 
 def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
     """Adds an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the radiance 
@@ -49,9 +139,9 @@ def get_solar_positions(nas_file, mounttree_file_path):
     
     return solar_positions
     --------
-    but now uses the macstrace package. """
-    
-    # Correct
+    but now uses the macstrace package.
+    """
+  
     sun = macstrace.Ephemeris.Sun.from_datasets(mounttree_file_path, nas_file)
     return sun.get_sza_az(time=nas_file.time.values)
 
@@ -139,6 +229,7 @@ def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None
     r_eff_RMS = np.sqrt(np.mean(r_eff_errors))
     tau550_RMS = np.sqrt(np.mean(tau550_errors))
     
+    # Plot and print output
     if display:
         
         # Plot inverted LUT (isert here as well a plot including the positions of the measured values...)

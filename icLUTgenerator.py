@@ -16,6 +16,7 @@ import subprocess
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
 UVSPEC_PATH = LIBRADTRAN_PATH+"/bin/uvspec"
 
+
 def load_solar_flux_kurudz():
     solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
 
@@ -27,6 +28,7 @@ def load_solar_flux_kurudz():
     solar_flux.wavelength.attrs["units"] = r'nm'
     
     return solar_flux
+
 
 def write_wavelength_grid_file(fpath, wvl_array):
     """Saves array as formated txt to be passed to uvspec"""
@@ -136,7 +138,7 @@ def get_measurement_arrays(measurementLUT, wvl1, wvl2):
         cloud_param_array[line,0]=LUTcut.coords["r_eff"].values[ir_eff]
         cloud_param_array[line,1]=LUTcut.coords["tau550"].values[itau550]
 
-        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl1).reflectivity.values
+        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550CPUs=itau550).sel(wvl=wvl1).reflectivity.values
         reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl2).reflectivity.values
     
     return reflectivity_array, cloud_param_array
@@ -210,12 +212,12 @@ def get_ic_reflectivity(args):
 
 
 def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array, tau550_array, ic_habit_array,
-              phi0=270, cloud_top_distance=1, ic_properties = "baum_v36", delete=True, CPUs=8, description=""):
+              phi0=0, cloud_top_distance=1, ic_properties = "baum_v36", delete=True, CPUs=8, description=""):
     
     """Generates lookup table for specified ranges and grid points and writes file as netCDF to specified paths. Cloud file 
-    format and positon as well as uvspec input file template are specified in the function. Sun position phi0 is east by 
-    default but can be changed. Default distance from cloud is 1km. ic_properties can also be changed as keyword argument, 
-    otherwise baum_v36 is default.'CPUs' gives number of cores on which the function is run in parallel.
+    format and positon as well as uvspec input file template are specified in the function.Default distance from cloud is 1km. 
+    ic_properties can also be changed as keyword argument, otherwise baum_v36 is default.'CPUs' gives number of cores on which 
+    the function is run in parallel.
     """
     
     start_time = timer()
@@ -260,7 +262,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
                                                                 it.repeat(ic_properties)))
             p.close()
             print("Pool closed")
-            print(np.shape(uvspec_results))
+            # Slows down process drmatically. Replace for loops with faster method
 
             for icloud in range(len(cloud_index_array)):
                 ir_eff, itau550 = cloud_index_array[icloud]
