@@ -254,6 +254,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
             current_sza_start_time = timer()
             print("Open pool...")
             with Pool(processes = CPUs) as p:
+                # When optimizing this part: maybe you can define the zpped arguments as args = tqdm(zip(...)) and see if progress bar will show up. Do the same when including the map() function below to increase writing speed
                 uvspec_results = p.map(get_ic_reflectivity, zip(cloud_index_vector,it.repeat(wvl_array),it.repeat(phi_array),
                                                                 it.repeat(umu_array), it.repeat(isza), it.repeat(sza_array),
                                                                 it.repeat(r_eff_array), it.repeat(tau550_array), 
@@ -262,7 +263,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
                                                                 it.repeat(ic_properties)))
             p.close()
             print("Pool closed")
-            # Slows down process drmatically. Replace for loops with faster method
+            # Slows down process dramatically. Replace for loops with faster method, e.g. list comprehension? Would remove outer loops...
 
             for icloud in range(len(cloud_index_array)):
                 ir_eff, itau550 = cloud_index_array[icloud]

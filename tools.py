@@ -19,6 +19,7 @@ from luti import Alphachecker, NeighbourInterpolator
 import pvlib
 from .icLUTgenerator import *
 import macstrace
+from tqdm import tqdm
 
 def save_as_netcdf(xr_data, fpath):
     """Avoids permission issues with xarray not overwriting existing files."""
@@ -34,11 +35,13 @@ def save_as_netcdf(xr_data, fpath):
 def retrieve_image(LUTpath, wvl1, wvl2, merged_data):
     
     time_array = merged_data.time.values
+    time_array_counter = tqdm(time_array)
+    
     
     result = np.array(list(map(retrieve_line, it.repeat(LUTpath), 
                                it.repeat(wvl1), it.repeat(wvl2), 
                                it.repeat(merged_data), 
-                               time_array)))
+                               time_array_counter)))
     
     r_eff = xr.DataArray(
             data=result[:,:,0],
@@ -85,7 +88,6 @@ def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, CPUs=10):
     p.close()
     
     cloud_params = np.array(list(cloud_params))
-    print(".", end='')
 
     return cloud_params
 
