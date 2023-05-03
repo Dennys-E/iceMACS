@@ -1,36 +1,21 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import subprocess
 from jinja2 import Template, StrictUndefined
 import os
 import xarray as xr 
-import netCDF4 as nc
 from timeit import default_timer as timer
 import tempfile
 import shutil
 import itertools as it
 from multiprocessing import Pool
-import tempfile
-import subprocess
+from tqdm import tqdm
+from .tools import *
 
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
 UVSPEC_PATH = LIBRADTRAN_PATH+"/bin/uvspec"
 
 
-def load_solar_flux_kurudz():
-    solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
-
-    solar_flux = xr.DataArray(data=solar_flux[:,1], dims=["wavelength"], 
-                                        coords=dict(wavelength = solar_flux[:,0],), 
-                                        attrs=dict(measurement="Solar flux as in Kurudz", 
-                                        units="mW m**-2 nm**-1",))
-
-    solar_flux.wavelength.attrs["units"] = r'nm'
-    
-    return solar_flux
-
-
-def write_wavelength_grid_file(fpath, wvl_array):
+def write_wavelength_grid_file(fpath, wvl_array):                             
     """Saves array as formated txt to be passed to uvspec"""
     np.savetxt(fpath, wvl_array, delimiter=' ')
     
@@ -242,7 +227,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
     
     print("Start libRadtran simulation...")
         
-    # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
+    # Compute vector to be passe            current_sza_start_time = timer()d to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
     cloud_index_array = get_index_combinations(len(r_eff_array))
     cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
         
@@ -342,11 +327,116 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, r_eff_array
     f.close()
     print('--------------------------------------------------------------------------------')
     print("LUT saved under"+LUTpath)    
-
     file_stats = os.stat(LUTpath)
-
     print(f'File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
+    print('Computation took %f6 minutes.' %elapsed_time)
     
+    return
+
+def new_write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, 
+                    r_eff_array, tau550_array, ic_habit_array, phi0=0, 
+                    cloud_top_distance=1, ic_properties = "baum_v36", 
+                    CPUs=8, description=""):
+    
+    start_time = timer()
+    temp_dir_path = tempfile.mkdtemp()
+    wvl_grid_file_path = temp_dir_path+'/wvl_grid_file.txt'
+    write_wavelength_grid_file(wvl_grid_file_path, wvl_array)
+    
+    # Initialise data array
+    reflectivity = np.ones((len(wvl_array), len(phi_array), len(umu_array), 
+                            len(sza_array), len(r_eff_array), 
+                            len(tau550_array), len(ic_habit_array)))
+    
+        
+    # Compute vector to be passed to the pool.map function. Includes all relevant index combinations for 'tau550' 'r_eff'. 
+    cloud_index_array = get_index_combinations(len(r_eff_array))
+    cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
+        
+    # Looping over entries in data array
+    for ihabit in range(len(ic_habit_array)):
+        ic_habit = ic_habit_array[ihabit]
+        print("Computing habit: ", ic_habit)
+        for isza in range(len(sza_array)):
+            ziplock_args = zip(cloud_index_vector,
+                               it.repeat(wvl_array), it.repeat(phi_array), 
+                               it.repeat(umu_array), it.repeat(isza), 
+                               it.repeat(sza_array), it.repeat(r_eff_array),
+                               it.repeat(tau550_array), it.repeat(phi0), 
+                               it.repeat(cloud_top_distance),
+                               it.repeat(wvl_grid_file_path),
+                               it.repeat(ic_habit), it.repeat(ic_properties))
+            
+            print("Open pool...")
+            with Pool(processes = CPUs) as p:
+                # When optimizing this part: maybe you can define the zpped arguments as args = tqdm(zip(...)) and see if progress bar will show up. Do the same when including the map() function below to increase writing speed
+                uvspec_results = p.map(get_ic_reflectivity, ziplock_args)
+            p.close()
+            end_of_pool_time = timer()
+            print("Pool closed")
+            # Slows down process dramatically. Replace for loops with faster method, e.g. list comprehension? Would remove outer loops...
+
+            print('Rearanging output...')
+            for icloud in range(len(cloud_index_array)):
+                ir_eff, itau550 = cloud_index_array[icloud]
+
+                for iwvl in range(len(wvl_array)):
+                    for iumu in range(len(umu_array)):
+                        for iphi in range(len(phi_array)):
+
+                            reflectivity[iwvl, iphi, iumu, isza, 
+                                         ir_eff, itau550, ihabit] = \
+                            np.array(uvspec_results)[icloud ,iwvl, 
+                                    iumu*len(phi_array) + iphi + 1] 
+    
+    print("Done!")
+    # Clear path
+    shutil.rmtree(temp_dir_path, ignore_errors=True)
+    
+    # Format as xr DataArray
+    file = open("InputFiles/ic_input_file_template.txt", "r")
+    template = file.read()
+    file.close()
+    
+    print("Format results as Xarray DataArray...")
+    LUT = xr.DataArray(
+        
+        data=reflectivity,
+        
+        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
+        
+        coords=dict(
+            wvl = wvl_array,
+            phi = phi_array,
+            umu = umu_array,
+            sza = sza_array,
+            r_eff = r_eff_array,
+            tau550 = tau550_array,
+            ic_habit = ic_habit_array),
+        
+        attrs=dict(
+            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            units="",
+            descr=description,
+            input_template = template,)
+    )
+    
+    LUT = LUT.rename("reflectivity")
+    LUT.wvl.attrs["units"] = r'nm'
+    LUT.phi.attrs["units"] = r'degrees'
+    LUT.sza.attrs["units"] = r'degrees'
+    LUT.r_eff.attrs["units"] = r'$\mu $m'
+    end_time = timer()
+    elapsed_time = (end_time - start_time)/60.
+    pool_time = (end_of_pool_time - start_time)/60.
+    LUT.attrs["computation_time[min]"] = elapsed_time
+    print("Write LUT to netCDF file...")
+    save_as_netcdf(LUT, LUTpath)
+    print('--------------------------------------------------------------------------------')
+    print("LUT saved under"+LUTpath)    
+    file_stats = os.stat(LUTpath)
+    print(f'File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
+    print('Simulation took %f6 minutes.' %pool_time)
     print('Computation took %f6 minutes.' %elapsed_time)
     
     return

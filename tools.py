@@ -21,6 +21,8 @@ from .icLUTgenerator import *
 import macstrace
 from tqdm import tqdm
 
+LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
+
 def save_as_netcdf(xr_data, fpath):
     """Avoids permission issues with xarray not overwriting existing files."""
     try: 
@@ -104,12 +106,41 @@ def retrieve_pixel(args):
     Rone, Rtwo = [Rone], [Rtwo]
     LUTcut = LUT.sel(wvl=[wvl1,wvl2], phi=phi, umu=umu, method='nearest')
     LUTcut.coords["wvl"]=("wvl",["Rone", "Rtwo"])
-    inverted = invert_data_array(LUTcut.reflectivity, input_params=["r_eff", "tau550"], output_dim="wvl",                        
+    inverted = invert_data_array(LUTcut.reflectivity, input_params=["r_eff", "tau550"], output_dim="wvl",                       
                                  output_grid={"Rone":Rone, "Rtwo":Rtwo}, checker=Alphachecker(alpha=0.5))
     r_eff = np.double(inverted.sel(input_params='r_eff').values)
     tau550 = np.double(inverted.sel(input_params='tau550').values)
     
     return r_eff, tau550
+
+def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
+    """Returns spectral ice index following the equation by Ehrlich et al. 2008"""
+    
+    measurement=measurement.reflectivity
+    
+    R_diff = measurement.sel(wavelength=wvl_upper, method='nearest')-measurement.sel(wavelength=wvl_lower, method='nearest')
+    wvl_diff = wvl_upper-wvl_lower
+    
+    # To be extended to use linear regression
+    I_s = (R_diff/measurement.sel(wavelength=center_wvl, method='nearest'))*(100./wvl_diff)
+    
+    return I_s.rename('ice_index')
+
+
+def get_reflectivity_variable(measurement, nas_file, mounttree_file_path):
+    """Returns an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the 
+    radiance measurements, that can be merged with the other datsets."""
+    
+    solar_positions = get_solar_positions(nas_file, mounttree_file_path)
+    solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
+        
+    solar_flux = load_solar_flux_kurudz()
+    solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
+    
+    reflectivity = measurement["radiance"]*np.pi/(solar_flux_resampled* \
+                                                                np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
+    
+    return reflectivity
 
 
 def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
@@ -126,6 +157,19 @@ def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
                                                                 np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
     
     return
+
+
+def load_solar_flux_kurudz():
+    solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
+
+    solar_flux = xr.DataArray(data=solar_flux[:,1], dims=["wavelength"], 
+                                        coords=dict(wavelength = solar_flux[:,0],), 
+                                        attrs=dict(measurement="Solar flux as in Kurudz", 
+                                        units="mW m**-2 nm**-1",))
+
+    solar_flux.wavelength.attrs["units"] = r'nm'
+    
+    return solar_flux
 
 
 def get_solar_positions(nas_file, mounttree_file_path):
@@ -148,11 +192,11 @@ def get_solar_positions(nas_file, mounttree_file_path):
     return sun.get_sza_az(time=nas_file.time.values)
 
 
-def read_LUT(LUTpath, rename = True):
+def read_LUT(LUTpath, rename = False):
     
     LUT = nc.Dataset(LUTpath)
     if rename:
-        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).rename({"__xarray_dataarray_variable__" : "reflectivity"})
+        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).rename({"__xarray_dataarray_variable__" : rename})
     else:
         LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
     
