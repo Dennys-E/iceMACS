@@ -1,27 +1,116 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import subprocess
-from jinja2 import Template, StrictUndefined
 import os
 import xarray as xr 
 import netCDF4 as nc
-from timeit import default_timer as timer
-import tempfile
-import shutil
 import itertools as it
 from multiprocessing import Pool
-import sys
-# Luti path
-#sys.path.insert(0, os.path.abspath('/project/meteo/work/Dennys.Erdtmann/Thesis/Python Packages/luti'))
-import luti
+from luti import Alphachecker
 from luti.xarray import invert_data_array
-from luti import Alphachecker, NeighbourInterpolator
-import pvlib
 from .icLUTgenerator import *
 import macstrace
+import macsproc
 from tqdm import tqdm
+import glob
+import datetime
+from macstrace import Halo
+from macstrace.Shapes import ZPlane
 
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
+
+
+
+def correct_swir_AC3(mounttree_file_path, nas_scene_file_path, vnir_scene, swir_scene, cloud_top_height = 0):
+    
+    cloud_plane = ZPlane(height=-cloud_top_height)
+
+    swir_corrected=macstrace.smacs1_to_smacs2(mounttree_file_path, nas_scene_file_path, 
+                                              swir_scene, vnir_scene, cloud_plane)
+
+    swir_corrected = swir_corrected.isel(wvl_2=0).to_dataset()
+    
+    return swir_corrected
+
+
+def get_view_angles(mounttree_file_path, nas_scene, solar_positions,
+                    vnir_scene, swir_scene):
+    
+    halo = Halo.from_datasets(mounttree_file_path, nas_scene, [vnir_scene, swir_scene])
+    view_angles = halo.get_abs_view_angles('vnir').isel(wavelength=0)
+
+    phis = (view_angles.vaa - solar_positions.saa.mean())%360
+    umus = np.cos(2.*np.pi*view_angles.vza/360.)
+    view_angles['umu'] = umus
+    view_angles['phi'] = phis
+    
+    return view_angles
+
+
+def format_data(vnir_scene, swir_scene, swir_corrected):
+    
+    measurements = xr.merge([vnir_scene, swir_corrected])
+
+    # Makes sure that only rows are included that vnir also sees. Otherwise, NaNs are generated
+    x = swir_scene.x.values
+    x = xr.where(abs(x)<abs(vnir_scene.x.max().values), x, np.nan)
+    x = x[~np.isnan(x)]
+
+    measurements = measurements.interp(x = x)
+    return measurements
+
+
+def load_AC3_scene(start_time, end_time, data_directory=None):
+    """Takes specific time in string format and returns nc files as xarray datasets: 
+    vnir_scene, swir_scene, bahamas_data"""
+    
+    day = start_time.strftime("%Y%m%d")
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    if day != end_time.strftime("%Y%m%d"):
+        print("Error: Start and end time have to be on the same day!")
+    
+    # Format slightly larger time frame for nas file, in order to avoid overlap
+    nas_start_time = start_time - datetime.timedelta(seconds=1)
+    nas_end_time = end_time + datetime.timedelta(seconds=1)
+    nas_interval = (nas_start_time.strftime("%Y-%m-%dT%H:%M:%S"), nas_end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    print("Load bahamas data...")
+    source_folder='/archive/meteo/ac3/'+day+'/'
+    nas_day_path = source_folder+"nas/AC3_HALO_BAHAMAS-SPECMACS-100Hz-final_"+day+"a.nc"
+    nas_day = read_LUT(nas_day_path)
+    nas_scene = nas_day.sel(time=slice(*nas_interval))
+    del(nas_day)
+    
+    print("Load and calibrate SWIR data...")
+    files = sorted(glob.glob(os.path.join(source_folder, "raw/specMACS.swir.*.flatds")))
+    auxdata = glob.glob(os.path.join(source_folder, "auxdata/swir_"+day+"*.log"))
+    swir_cal = "/archive/meteo/ac3/specmacs_calibration_data/specMACS_SWIR_cal_AC3.nc"
+    swir_day = macsproc.load_measurement_files(files, auxdata, swir_cal, "swir")
+    
+    print("Load and calibrate VNIR data...")
+    files = sorted(glob.glob(os.path.join(source_folder, "raw/specMACS.vnir.*.flatds")))
+    auxdata = glob.glob(os.path.join(source_folder, "auxdata/vnir_"+day+"*.log"))
+    # Same calibration as during EUREC4A but dark current LUT necessary
+    vnir_cal = "/archive/meteo/eurec4a/specmacs_calibration_data/specMACS_VNIR_cal_preEUREC4A_temp.nc"
+    dark_current_LUT_path = "/project/meteo/work/Veronika.Poertge/PhD/data/specmacs/vnir/averaged_dark_current_vnir_20200202.nc"
+    vnir_day = macsproc.load_measurement_files_dark_current_LUT(files,auxdata,vnir_cal,"vnir", dark_current_LUT_path)
+    
+    swir_scene = swir_day.sel(time=slice(*interval))[["radiance", "alt", "act"]]
+    vnir_scene = vnir_day.sel(time=slice(*interval))[["radiance", "alt", "act"]]
+    
+    del(vnir_day)
+    del(swir_day)
+    
+    if data_directory is not None:
+        print("Save files under "+data_directory)
+        print("...nas_scene")
+        save_as_netcdf(nas_scene, data_directory+"/nas_scene.nc")
+        print("...swir_scene")
+        save_as_netcdf(swir_scene, data_directory+"/swir_scene.nc")
+        print("...vnir_scene")
+        save_as_netcdf(vnir_scene, data_directory+"/vnir_scene.nc")
+        
+    return vnir_scene, swir_scene, nas_scene
 
 def save_as_netcdf(xr_data, fpath):
     """Avoids permission issues with xarray not overwriting existing files."""
@@ -98,8 +187,6 @@ def retrieve_pixel(args):
     """Takes LUT and the two reflectivity positions to retrieve cloud parameter tuple for specific viewing angle."""
     LUTpath, wvl1, wvl2, Rone, Rtwo, umu, phi = args
     
-    checker=Alphachecker()
-    
     LUT = read_LUT(LUTpath)
     LUT = LUT.isel(ic_habit=0)
     
@@ -127,16 +214,18 @@ def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
     return I_s.rename('ice_index')
 
 
-def get_reflectivity_variable(measurement, nas_file, mounttree_file_path):
+def get_reflectivity_variable(measurement, solar_positions, mounttree_file_path):
     """Returns an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the 
     radiance measurements, that can be merged with the other datsets."""
     
-    solar_positions = get_solar_positions(nas_file, mounttree_file_path)
+    print("Resample solar positions...")
     solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
-        
+    
+    print("Load solar flux...")
     solar_flux = load_solar_flux_kurudz()
     solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
     
+    print("Compute reflectivities...")
     reflectivity = measurement["radiance"]*np.pi/(solar_flux_resampled* \
                                                                 np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
     
@@ -173,20 +262,6 @@ def load_solar_flux_kurudz():
 
 
 def get_solar_positions(nas_file, mounttree_file_path):
-    
-    """Calculates solar positions based on location of halo, given in nas file. Used 
-    formerly:
-    --------
-    solar_positions = pvlib.solarposition.get_solarposition(nas_file.time, nas_file.lon, nas_file.lat,
-                                                             altitude=assumed_cloud_height)
-
-    solar_positions = solar_positions.to_xarray()
-    solar_positions = solar_positions.rename({'index':'time'})
-    
-    return solar_positions
-    --------
-    but now uses the macstrace package.
-    """
   
     sun = macstrace.Ephemeris.Sun.from_datasets(mounttree_file_path, nas_file)
     return sun.get_sza_az(time=nas_file.time.values)
@@ -201,38 +276,6 @@ def read_LUT(LUTpath, rename = False):
         LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
     
     return LUT
-
-
-def show_LUT(LUT, wvl1, wvl2, save_under=None):
-    """Takes a LUT for one perspective and returns an overview of plots to display the data. Does not retrieve any values."""
-    
-    fig, ax = plt.subplots(figsize=(16,16))
-    LUTcut1 = LUT.sel(wvl=wvl1)
-    LUTcut2 = LUT.sel(wvl=wvl2)
-
-    for r_eff in LUT.coords['r_eff'].values:
-        ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
-                linewidth=1, label=np.round(r_eff, 2))
-
-    for tau550 in LUT.coords['tau550'].values:
-        ax.plot(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy(), LUTcut2.sel(tau550=tau550).reflectivity.to_numpy(),
-                "--", color="black",
-                linewidth=0.7)
-        
-        x = np.max(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy())
-        y = np.max(LUTcut2.sel(tau550=tau550).reflectivity.to_numpy())
-        #if tau550<15 and tau550>0:
-         #   plt.text(x,y, r"$\tau=$"+str(tau550), fontsize=11)
-
-    ax.set_xlabel("Reflectivity at "+str(wvl1)+"nm")
-    ax.set_ylabel("Reflectivity at "+str(wvl2)+"nm")
-    ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
-    
-    if save_under is not None:
-        plt.savefig(save_under)
-        
-    plt.show()
-    return
         
 
 def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None):
