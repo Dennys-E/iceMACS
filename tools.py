@@ -15,12 +15,13 @@ import glob
 import datetime
 from macstrace import Halo
 from macstrace.Shapes import ZPlane
+import pvlib.solarposition as sp
 
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
 
 
-
-def correct_swir_AC3(mounttree_file_path, nas_scene_file_path, vnir_scene, swir_scene, cloud_top_height = 0):
+def correct_swir_AC3(mounttree_file_path, nas_scene_file_path, 
+                     vnir_scene, swir_scene, cloud_top_height = 0):
     
     cloud_plane = ZPlane(height=-cloud_top_height)
 
@@ -123,7 +124,7 @@ def save_as_netcdf(xr_data, fpath):
     return
 
 
-def retrieve_image(LUTpath, wvl1, wvl2, merged_data):
+def retrieve_image(LUTpath, wvl1, wvl2, merged_data, habit):
     
     time_array = merged_data.time.values
     time_array_counter = tqdm(time_array)
@@ -132,7 +133,7 @@ def retrieve_image(LUTpath, wvl1, wvl2, merged_data):
     result = np.array(list(map(retrieve_line, it.repeat(LUTpath), 
                                it.repeat(wvl1), it.repeat(wvl2), 
                                it.repeat(merged_data), 
-                               time_array_counter)))
+                               time_array_counter, it.repeat(habit))))
     
     r_eff = xr.DataArray(
             data=result[:,:,0],
@@ -161,7 +162,7 @@ def retrieve_image(LUTpath, wvl1, wvl2, merged_data):
     return r_eff, tau550
 
 
-def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, CPUs=10):
+def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, habit, CPUs=10):
     
     line = merged_data.sel(time=time)
     geometry = line.sel(wavelength = wvl1, method='nearest')
@@ -175,7 +176,7 @@ def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, CPUs=10):
     with Pool(processes = CPUs) as p:
         cloud_params = p.map(retrieve_pixel, zip(it.repeat(LUTpath),                                        
                                                          it.repeat(wvl1), it.repeat(wvl2), 
-                                                         Rone, Rtwo, umu, phi))
+                                                         Rone, Rtwo, umu, phi, it.repeat(habit)))
     p.close()
     
     cloud_params = np.array(list(cloud_params))
@@ -185,10 +186,10 @@ def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, CPUs=10):
 
 def retrieve_pixel(args):
     """Takes LUT and the two reflectivity positions to retrieve cloud parameter tuple for specific viewing angle."""
-    LUTpath, wvl1, wvl2, Rone, Rtwo, umu, phi = args
+    LUTpath, wvl1, wvl2, Rone, Rtwo, umu, phi, habit = args
     
     LUT = read_LUT(LUTpath)
-    LUT = LUT.isel(ic_habit=0)
+    LUT = LUT.sel(ic_habit=habit)
     
     Rone, Rtwo = [Rone], [Rtwo]
     LUTcut = LUT.sel(wvl=[wvl1,wvl2], phi=phi, umu=umu, method='nearest')
@@ -216,7 +217,8 @@ def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
 
 def get_reflectivity_variable(measurement, solar_positions, mounttree_file_path):
     """Returns an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the 
-    radiance measurements, that can be merged with the other datsets."""
+    radiance measurements, that can be merged with the other datsets. Now also
+    considers Earth-Sun distance."""
     
     print("Resample solar positions...")
     solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
@@ -226,15 +228,16 @@ def get_reflectivity_variable(measurement, solar_positions, mounttree_file_path)
     solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
     
     print("Compute reflectivities...")
-    reflectivity = measurement["radiance"]*np.pi/(solar_flux_resampled* \
-                                                                np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
+    reflectivity = measurement["radiance"]*(solar_positions_resampled.d**2)*\
+    np.pi/(solar_flux_resampled*np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
     
     return reflectivity
 
 
 def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
     """Adds an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the radiance 
-    measurements."""
+    measurements.
+    NOT MAINTAINED. DOES NOT CONSIDER EARTH-SUN DISTANCE"""
     
     solar_positions = get_solar_positions(nas_file, mounttree_file_path)
     solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
@@ -264,7 +267,13 @@ def load_solar_flux_kurudz():
 def get_solar_positions(nas_file, mounttree_file_path):
   
     sun = macstrace.Ephemeris.Sun.from_datasets(mounttree_file_path, nas_file)
-    return sun.get_sza_az(time=nas_file.time.values)
+    solar_positions = sun.get_sza_az(time=nas_file.time.values)
+    
+    d = sp.nrel_earthsun_distance(solar_positions.time).to_xarray().rename({'index':'time'})
+    
+    solar_positions['d'] = d
+    
+    return solar_positions
 
 
 def read_LUT(LUTpath, rename = False):
