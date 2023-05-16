@@ -22,8 +22,8 @@ ic_file 1D {{ cloud_file_path }}
 ic_modify tau550 set {{tau550}}
 
 ic_properties {{ ic_properties }}
-#ic_habit_yang2013 {{ ic_habit }} moderate
-ic_habit {{ ic_habit }}
+ic_habit_yang2013 {{ ic_habit }} smooth
+#ic_habit {{ ic_habit }}
 
 #aerosol_default
 

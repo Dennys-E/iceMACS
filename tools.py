@@ -20,6 +20,50 @@ import pvlib.solarposition as sp
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
 
 
+def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
+    
+    umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
+                                             bins=umu_bins)
+    phi_counts, phi_bin_edges = np.histogram(merged_data.phi.to_numpy().flatten(), 
+                                             bins=phi_bins)
+    
+    print('Read LUT...')
+    inverted = read_LUT(invertedLUT_path)
+    
+    print('Interpolate data...')
+    list = []
+    for i_phi_bin in tqdm(range(len(phi_bin_edges)-1)):
+        
+        phi_mean = (phi_bin_edges[i_phi_bin+1]+phi_bin_edges[i_phi_bin])/2.
+             
+        for i_umu_bin in range(len(umu_bin_edges)-1):
+            
+            umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
+            
+            data_cut = merged_data.reflectivity\
+            .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
+            .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
+            .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
+            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', how='all')
+           
+            if data_cut.x.size != 0:
+                LUT = inverted.sel(phi=phi_mean, umu=umu_mean, method='nearest')
+
+                result = LUT.interp(R_640=data_cut.sel(wavelength=640, method='nearest'), 
+                                    R_2150=data_cut.sel(wavelength=2150, method='nearest'))
+                
+                result['r_eff'] = result.sel(input_params='r_eff').reflectivity
+                result['tau550'] = result.sel(input_params='tau550').reflectivity
+
+                list.append(result.drop_vars(['phi', 'umu', 'wvl_2', 
+                                              'reflectivity', 'input_params']))
+               
+    print('Merge output...')
+    result = xr.merge(list)
+    print('Done!')
+    return result
+
+
 def correct_swir_AC3(mounttree_file_path, nas_scene_file_path, 
                      vnir_scene, swir_scene, cloud_top_height = 0):
     
@@ -167,16 +211,19 @@ def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, habit, CPUs=10):
     line = merged_data.sel(time=time)
     geometry = line.sel(wavelength = wvl1, method='nearest')
         
-    Rone = np.array(line.sel(wavelength=wvl1, method='nearest').reflectivity.values)
-    Rtwo = np.array(line.sel(wavelength=wvl2, method='nearest').reflectivity.values)
+    Rone = np.array(line.sel(wavelength=wvl1, 
+                             method='nearest').reflectivity.values)
+    Rtwo = np.array(line.sel(wavelength=wvl2, 
+                             method='nearest').reflectivity.values)
         
     umu = np.array(geometry.umu.values)
     phi = np.array(geometry.phi.values)
     
     with Pool(processes = CPUs) as p:
-        cloud_params = p.map(retrieve_pixel, zip(it.repeat(LUTpath),                                        
-                                                         it.repeat(wvl1), it.repeat(wvl2), 
-                                                         Rone, Rtwo, umu, phi, it.repeat(habit)))
+        cloud_params = p.map(retrieve_pixel, 
+                             zip(it.repeat(LUTpath),                                        
+                                 it.repeat(wvl1), it.repeat(wvl2), 
+                                 Rone, Rtwo, umu, phi, it.repeat(habit)))
     p.close()
     
     cloud_params = np.array(list(cloud_params))
@@ -185,7 +232,8 @@ def retrieve_line(LUTpath, wvl1, wvl2, merged_data, time, habit, CPUs=10):
 
 
 def retrieve_pixel(args):
-    """Takes LUT and the two reflectivity positions to retrieve cloud parameter tuple for specific viewing angle."""
+    """Takes LUT and the two reflectivity positions to retrieve cloud parameter
+    tuple for specific viewing angle."""
     LUTpath, wvl1, wvl2, Rone, Rtwo, umu, phi, habit = args
     
     LUT = read_LUT(LUTpath)
@@ -194,31 +242,38 @@ def retrieve_pixel(args):
     Rone, Rtwo = [Rone], [Rtwo]
     LUTcut = LUT.sel(wvl=[wvl1,wvl2], phi=phi, umu=umu, method='nearest')
     LUTcut.coords["wvl"]=("wvl",["Rone", "Rtwo"])
-    inverted = invert_data_array(LUTcut.reflectivity, input_params=["r_eff", "tau550"], output_dim="wvl",                       
-                                 output_grid={"Rone":Rone, "Rtwo":Rtwo}, checker=Alphachecker(alpha=0.5))
+    inverted = invert_data_array(LUTcut.reflectivity, 
+                                 input_params=["r_eff", "tau550"], 
+                                 output_dim="wvl",                       
+                                 output_grid={"Rone":Rone, "Rtwo":Rtwo}, 
+                                 checker=Alphachecker(alpha=0.5))
+    
     r_eff = np.double(inverted.sel(input_params='r_eff').values)
     tau550 = np.double(inverted.sel(input_params='tau550').values)
     
     return r_eff, tau550
 
 def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
-    """Returns spectral ice index following the equation by Ehrlich et al. 2008"""
+    """Returns spectral ice index following the equation 
+    by Ehrlich et al. 2008"""
     
     measurement=measurement.reflectivity
     
-    R_diff = measurement.sel(wavelength=wvl_upper, method='nearest')-measurement.sel(wavelength=wvl_lower, method='nearest')
+    R_diff = measurement.sel(wavelength=wvl_upper, method='nearest')\
+    -measurement.sel(wavelength=wvl_lower, method='nearest')
     wvl_diff = wvl_upper-wvl_lower
     
     # To be extended to use linear regression
-    I_s = (R_diff/measurement.sel(wavelength=center_wvl, method='nearest'))*(100./wvl_diff)
+    I_s = (R_diff/measurement.sel(wavelength=center_wvl, method='nearest'))\
+    *(100./wvl_diff)
     
     return I_s.rename('ice_index')
 
 
 def get_reflectivity_variable(measurement, solar_positions, mounttree_file_path):
-    """Returns an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the 
-    radiance measurements, that can be merged with the other datsets. Now also
-    considers Earth-Sun distance."""
+    """Returns an additional variable to calibrated SWIR or VNIR data, based on
+    a nas file containing halo data and the radiance measurements, that can be 
+    merged with the other datsets. Now also considers Earth-Sun distance."""
     
     print("Resample solar positions...")
     solar_positions_resampled = solar_positions.interp(time=measurement.time.values)

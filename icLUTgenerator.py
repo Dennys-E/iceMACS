@@ -13,6 +13,7 @@ from .tools import *
 
 LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
 UVSPEC_PATH = LIBRADTRAN_PATH+"/bin/uvspec"
+INPUT_FILES_DIR = "/project/meteo/work/Dennys.Erdtmann/Thesis/iceMACS/templates"
 
 
 def write_wavelength_grid_file(fpath, wvl_array):                             
@@ -185,7 +186,7 @@ def get_ic_reflectivity(args):
         "ic_properties"             : ic_properties
     }
     
-    input_file_template_path = 'InputFiles/ic_input_file_template.txt'
+    input_file_template_path = INPUT_FILES_DIR+'/ic_input_file_template.txt'
                             
     write_input_file(input_file_template_path, generated_input_file_path, input_file_args)
     uvspec_result = get_uvspec_output(generated_input_file_path, temp_dir_path+'/temp_output.txt')
@@ -374,7 +375,8 @@ def new_write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             p.close()
             end_of_pool_time = timer()
             print("Pool closed")
-            # Slows down process dramatically. Replace for loops with faster method, e.g. list comprehension? Would remove outer loops...
+            # Slows down process dramatically. Replace for loops with faster 
+            # method, e.g. list comprehension? Would remove outer loops...
 
             print('Rearanging output...')
             for icloud in range(len(cloud_index_array)):
