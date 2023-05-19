@@ -2,8 +2,6 @@ import cartopy.crs as ccrs
 import cartopy
 import matplotlib.pyplot as plt
 import numpy as np
-from .tools import *
-
 
 
 def show_scene_geometry(view_angles, solar_positions):
@@ -129,33 +127,54 @@ def map_scene(nas_day, interval):
     return
 
 
-def show_LUT(LUT, wvl1, wvl2, save_under=None):
-    """Takes a LUT for one perspective and returns an overview of plots to display the data. Does not retrieve any values."""
+def show_LUT(LUTcut, wvl1, wvl2, merged_data = None):
     
-    fig, ax = plt.subplots(figsize=(16,16))
-    LUTcut1 = LUT.sel(wvl=wvl1)
-    LUTcut2 = LUT.sel(wvl=wvl2)
-
-    for r_eff in LUT.coords['r_eff'].values:
-        ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
-                linewidth=1, label=np.round(r_eff, 2))
-
-    for tau550 in LUT.coords['tau550'].values:
-        ax.plot(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy(), LUTcut2.sel(tau550=tau550).reflectivity.to_numpy(),
-                "--", color="black",
-                linewidth=0.7)
+    fig, axis = plt.subplots(figsize=(8, 8))
+    ax = axis
+    
+    if merged_data is not None:
+    
+        vnir_reflectivities = merged_data.sel(wavelength=wvl1, 
+                                              method='nearest').\
+                                              reflectivity.to_numpy().flatten()
+        swir_reflectivities = merged_data.sel(wavelength=wvl2, 
+                                              method='nearest').\
+                                              reflectivity.to_numpy().flatten()
         
+        cmap = plt.cm.plasma
+        cmap.set_under(color='white')
+    
+        ax.hist2d(vnir_reflectivities, swir_reflectivities, 
+                  bins=400, vmin=5, cmap=cmap)
+
+    LUTcut1 = LUTcut.sel(wvl=wvl1)
+    LUTcut2 = LUTcut.sel(wvl=wvl2)
+
+    for r_eff in LUTcut.coords['r_eff'].values:
+        ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), 
+                LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
+                linewidth=1, label=np.round(r_eff))
+
+    for itau550 in range(len(LUTcut.coords['tau550'])):
+        ax.plot(LUTcut1.isel(tau550=itau550).reflectivity.to_numpy(),
+                LUTcut2.isel(tau550=itau550).reflectivity.to_numpy(),
+                "-.", color="black", linewidth=1)
+
+        tau550 = LUTcut.coords['tau550'].to_numpy()[itau550]
         x = np.max(LUTcut1.sel(tau550=tau550).reflectivity.to_numpy())
         y = np.max(LUTcut2.sel(tau550=tau550).reflectivity.to_numpy())
-        if tau550<15 and tau550>0:
-            plt.text(x,y, r"$\tau=$"+str(tau550), fontsize=11)
+        if tau550>0.28 and tau550<=5:
+                plt.text(x,y, r"      $\tau=$"+str(np.around(tau550,2)), 
+                         fontsize=11, rotation=90)
 
+    #plt.legend(title=r'Effective radius [$\mu$m]', ncols=6, loc="upper left")
     ax.set_xlabel("Reflectivity at "+str(wvl1)+"nm")
     ax.set_ylabel("Reflectivity at "+str(wvl2)+"nm")
-    ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
+
+    fig.tight_layout()
     
-    if save_under is not None:
-        plt.savefig(save_under)
-        
+    if len(LUTcut.coords['ic_habit'].values) == 1:
+        plt.title(r'$\theta_s=$'+str(np.around(sza, 2))+'° | Habit assumption: '+habit)
     plt.show()
+    
     return
