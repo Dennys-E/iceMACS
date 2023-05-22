@@ -44,13 +44,16 @@ def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
             .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
             .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
-            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', how='all')
+            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
+                  how='all')
            
             if data_cut.x.size != 0:
                 LUT = inverted.sel(phi=phi_mean, umu=umu_mean, method='nearest')
 
-                result = LUT.interp(R_640=data_cut.sel(wavelength=640, method='nearest'), 
-                                    R_2150=data_cut.sel(wavelength=2150, method='nearest'))
+                result = LUT.interp(R_640=data_cut.sel(wavelength=640, 
+                                                       method='nearest'), 
+                                    R_2150=data_cut.sel(wavelength=2150, 
+                                                        method='nearest'))
                 
                 result['r_eff'] = result.sel(input_params='r_eff').reflectivity
                 result['tau550'] = result.sel(input_params='tau550').reflectivity
@@ -68,6 +71,8 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
                      vnir_scene, swir_scene, cloud_top_height = 0):
     
     cloud_plane = ZPlane(height=-cloud_top_height)
+    
+    swir_scene['radiance'] = get_fixed_radiance(swir_scene)
 
     swir_corrected=macstrace.smacs1_to_smacs2(mounttree_file_path, nas_scene_file_path, 
                                               swir_scene, vnir_scene, cloud_plane)
@@ -75,6 +80,13 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
     swir_corrected = swir_corrected.isel(wvl_2=0).to_dataset()
     
     return swir_corrected
+
+
+def get_fixed_radiance(scene):
+    fixed_radiance = scene.radiance.where(scene.valid==1).\
+    interpolate_na(dim='x', use_coordinate=False)
+    
+    return fixed_radiance
 
 
 def get_view_angles(mounttree_file_path, nas_scene, solar_positions,
@@ -109,7 +121,8 @@ def load_AC3_scene(start_time, end_time, data_directory=None):
     vnir_scene, swir_scene, bahamas_data"""
     
     day = start_time.strftime("%Y%m%d")
-    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                end_time.strftime("%Y-%m-%dT%H:%M:%S"))
     
     if day != end_time.strftime("%Y%m%d"):
         print("Error: Start and end time have to be on the same day!")
@@ -117,7 +130,8 @@ def load_AC3_scene(start_time, end_time, data_directory=None):
     # Format slightly larger time frame for nas file, in order to avoid overlap
     nas_start_time = start_time - datetime.timedelta(seconds=1)
     nas_end_time = end_time + datetime.timedelta(seconds=1)
-    nas_interval = (nas_start_time.strftime("%Y-%m-%dT%H:%M:%S"), nas_end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    nas_interval = (nas_start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                    nas_end_time.strftime("%Y-%m-%dT%H:%M:%S"))
     
     print("Load bahamas data...")
     source_folder='/archive/meteo/ac3/'+day+'/'
@@ -140,8 +154,8 @@ def load_AC3_scene(start_time, end_time, data_directory=None):
     dark_current_LUT_path = "/project/meteo/work/Veronika.Poertge/PhD/data/specmacs/vnir/averaged_dark_current_vnir_20200202.nc"
     vnir_day = macsproc.load_measurement_files_dark_current_LUT(files,auxdata,vnir_cal,"vnir", dark_current_LUT_path)
     
-    swir_scene = swir_day.sel(time=slice(*interval))[["radiance", "alt", "act"]]
-    vnir_scene = vnir_day.sel(time=slice(*interval))[["radiance", "alt", "act"]]
+    swir_scene = swir_day.sel(time=slice(*interval))#[["radiance", "alt", "act", "valid"]]
+    vnir_scene = vnir_day.sel(time=slice(*interval))#[["radiance", "alt", "act", "valid"]]
     
     del(vnir_day)
     del(swir_day)
