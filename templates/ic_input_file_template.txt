@@ -5,7 +5,6 @@ source solar
 
 mol_abs_param reptran coarse
 
-#wavelength {{ wvl_LowerLimit }} {{ wvl_UpperLimit }}
 wavelength_grid_file {{ wavelength_grid_file_path }}
 
 sza {{ sza }}
@@ -21,9 +20,8 @@ brdf_cam u10 7 # Other variables set to default
 ic_file 1D {{ cloud_file_path }}
 ic_modify tau550 set {{tau550}}
 
-ic_properties {{ ic_properties }}
-ic_habit_yang2013 {{ ic_habit }} smooth
-#ic_habit {{ ic_habit }}
+ic_properties {{ ic_properties }} interpolate
+{{habit_mode}} {{ ic_habit }} {{ surface_roughness }}
 
 #aerosol_default
 

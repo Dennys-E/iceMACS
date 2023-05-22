@@ -72,30 +72,6 @@ def get_index_combinations(length):
     return cloud_index_array
 
 
-def get_measurement_arrays(measurementLUT, wvl1, wvl2):
-    """Takes a LUT containing measurements and knowledge about the corresponsing "correct" values for r_eff and tau550. Returns 
-    arrays containing all relevant combinations to be passed to the luti invert_data_array function."""
-    
-    LUTcut = measurementLUT
-    r_eff_array = LUTcut.coords["r_eff"]
-    cloud_index_array = get_index_combinations(len(r_eff_array))
-
-    cloud_param_array = np.zeros(np.shape(cloud_index_array))
-    reflectivity_array = np.zeros(np.shape(cloud_index_array))
-
-    for line in range(len(cloud_index_array)):
-        ir_eff = cloud_index_array[line,0]
-        itau550 = cloud_index_array[line,1]
-
-        cloud_param_array[line,0]=LUTcut.coords["r_eff"].values[ir_eff]
-        cloud_param_array[line,1]=LUTcut.coords["tau550"].values[itau550]
-
-        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550CPUs=itau550).sel(wvl=wvl1).reflectivity.values
-        reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl2).reflectivity.values
-    
-    return reflectivity_array, cloud_param_array
-
-
 def get_uvspec_output(input_file_path, temp_path):
     """Returns standard 2D uvspec output. File is temporarily saved in order to
     ensure correct format.

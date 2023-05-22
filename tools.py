@@ -7,7 +7,6 @@ import itertools as it
 from multiprocessing import Pool
 from luti import Alphachecker
 from luti.xarray import invert_data_array
-from .icLUTgenerator import *
 import macstrace
 import macsproc
 from tqdm import tqdm
@@ -16,8 +15,8 @@ import datetime
 from macstrace import Halo
 from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
-
-LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
+from .simulation_tools import get_index_combinations
+from .paths import *
 
 
 def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
@@ -354,6 +353,30 @@ def read_LUT(LUTpath, rename = False):
         LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
     
     return LUT
+
+
+def get_measurement_arrays(measurementLUT, wvl1, wvl2):
+    """Takes a LUT containing measurements and knowledge about the corresponsing "correct" values for r_eff and tau550. Returns 
+    arrays containing all relevant combinations to be passed to the luti invert_data_array function."""
+    
+    LUTcut = measurementLUT
+    r_eff_array = LUTcut.coords["r_eff"]
+    cloud_index_array = get_index_combinations(len(r_eff_array))
+
+    cloud_param_array = np.zeros(np.shape(cloud_index_array))
+    reflectivity_array = np.zeros(np.shape(cloud_index_array))
+
+    for line in range(len(cloud_index_array)):
+        ir_eff = cloud_index_array[line,0]
+        itau550 = cloud_index_array[line,1]
+
+        cloud_param_array[line,0]=LUTcut.coords["r_eff"].values[ir_eff]
+        cloud_param_array[line,1]=LUTcut.coords["tau550"].values[itau550]
+
+        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550CPUs=itau550).sel(wvl=wvl1).reflectivity.values
+        reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl2).reflectivity.values
+    
+    return reflectivity_array, cloud_param_array
         
 
 def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None):
