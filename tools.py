@@ -70,28 +70,36 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
                      vnir_scene, swir_scene, cloud_top_height = 0):
     
     cloud_plane = ZPlane(height=-cloud_top_height)
-    
-    swir_scene['radiance'] = get_fixed_radiance(swir_scene)
 
-    swir_corrected=macstrace.smacs1_to_smacs2(mounttree_file_path, nas_scene_file_path, 
-                                              swir_scene, vnir_scene, cloud_plane)
+    swir_corrected=macstrace.smacs1_to_smacs2(mounttree_file_path, 
+                                              nas_scene_file_path, 
+                                              swir_scene, vnir_scene, 
+                                              cloud_plane)
 
     swir_corrected = swir_corrected.isel(wvl_2=0).to_dataset()
     
     return swir_corrected
 
 
-def get_fixed_radiance(scene):
-    fixed_radiance = scene.radiance.where(scene.valid==1).\
-    interpolate_na(dim='x', use_coordinate=False)
+def fix_radiance(scene, thresh=1.25, window=3):
+    #bad_pixels_fixed = scene.radiance.where(scene.valid==1).\
+    #interpolate_na(dim='x', method='spline', use_coordinate=False)
     
-    return fixed_radiance
+    int_slopes = xr.ufuncs.square(scene.radiance.differentiate(coord='x')).\
+    integrate(coord='time').rolling(x=window).mean()
+    int_slopes = int_slopes/int_slopes.mean()
+    sel_scene = scene.radiance.where(int_slopes<thresh)
+    fixed_scene = sel_scene.interpolate_na(dim='x', method='spline', 
+                                           use_coordinate=False)
+    
+    return fixed_scene
 
 
 def get_view_angles(mounttree_file_path, nas_scene, solar_positions,
                     vnir_scene, swir_scene):
     
-    halo = Halo.from_datasets(mounttree_file_path, nas_scene, [vnir_scene, swir_scene])
+    halo = Halo.from_datasets(mounttree_file_path, nas_scene, [vnir_scene, 
+                                                               swir_scene])
     view_angles = halo.get_abs_view_angles('vnir').isel(wavelength=0)
 
     phis = (view_angles.vaa - solar_positions.saa.mean())%360
@@ -106,7 +114,8 @@ def format_data(vnir_scene, swir_scene, swir_corrected):
     
     measurements = xr.merge([vnir_scene, swir_corrected])
 
-    # Makes sure that only rows are included that vnir also sees. Otherwise, NaNs are generated
+    # Makes sure that only rows are included that vnir also sees. Otherwise, 
+    # NaNs are generated
     x = swir_scene.x.values
     x = xr.where(abs(x)<abs(vnir_scene.x.max().values), x, np.nan)
     x = x[~np.isnan(x)]
@@ -115,7 +124,7 @@ def format_data(vnir_scene, swir_scene, swir_corrected):
     return measurements
 
 
-def load_AC3_scene(start_time, end_time, data_directory=None):
+def load_AC3_scene(start_time, end_time):
     """Takes specific time in string format and returns nc files as xarray datasets: 
     vnir_scene, swir_scene, bahamas_data"""
     
@@ -153,20 +162,11 @@ def load_AC3_scene(start_time, end_time, data_directory=None):
     dark_current_LUT_path = "/project/meteo/work/Veronika.Poertge/PhD/data/specmacs/vnir/averaged_dark_current_vnir_20200202.nc"
     vnir_day = macsproc.load_measurement_files_dark_current_LUT(files,auxdata,vnir_cal,"vnir", dark_current_LUT_path)
     
-    swir_scene = swir_day.sel(time=slice(*interval))#[["radiance", "alt", "act", "valid"]]
-    vnir_scene = vnir_day.sel(time=slice(*interval))#[["radiance", "alt", "act", "valid"]]
+    swir_scene = swir_day.sel(time=slice(*interval))[["radiance", "alt", "act", "valid"]]
+    vnir_scene = vnir_day.sel(time=slice(*interval))[["radiance", "alt", "act", "valid"]]
     
     del(vnir_day)
     del(swir_day)
-    
-    if data_directory is not None:
-        print("Save files under "+data_directory)
-        print("...nas_scene")
-        save_as_netcdf(nas_scene, data_directory+"/nas_scene.nc")
-        print("...swir_scene")
-        save_as_netcdf(swir_scene, data_directory+"/swir_scene.nc")
-        print("...vnir_scene")
-        save_as_netcdf(vnir_scene, data_directory+"/vnir_scene.nc")
         
     return vnir_scene, swir_scene, nas_scene
 
