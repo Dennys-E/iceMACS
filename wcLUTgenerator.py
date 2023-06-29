@@ -11,10 +11,6 @@ get_formatted_uvspec_output, write_wavelength_grid_file, get_index_combinations
 from .tools import save_as_netcdf
 from .paths import *
 
-#LIBRADTRAN_PATH = "/project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4"
-#UVSPEC_PATH = LIBRADTRAN_PATH+"/bin/uvspec"
-#INPUT_FILES_DIR = "/project/meteo/work/Dennys.Erdtmann/Thesis/iceMACS/templates"
-
 
 def get_wc_reflectivity(args):
     
@@ -144,7 +140,7 @@ def write_wcLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
     shutil.rmtree(temp_dir_path, ignore_errors=True)
     
     # Format as xr DataArray
-    file = open("InputFiles/ic_input_file_template.txt", "r")
+    file = open(INPUT_FILES_DIR+'/wc_input_file_template.txt', "r")
     template = file.read()
     file.close()
     
@@ -153,7 +149,7 @@ def write_wcLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
         
         data=reflectivity,
         
-        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
+        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550"],
         
         coords=dict(
             wvl = wvl_array,

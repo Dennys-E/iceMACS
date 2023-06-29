@@ -12,24 +12,23 @@ import macsproc
 from tqdm import tqdm
 import glob
 import datetime
-from macstrace import Halo
+from macstrace.Halo import Halo
 from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
 from .simulation_tools import get_index_combinations
 from .paths import *
 
 
-def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
+def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
     
     umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
                                              bins=umu_bins)
     phi_counts, phi_bin_edges = np.histogram(merged_data.phi.to_numpy().flatten(), 
                                              bins=phi_bins)
     
-    print('Read LUT...')
-    inverted = read_LUT(invertedLUT_path)
+    inverted = inverted.sel(sza=merged_data.sza.mean(), method='nearest')
     
-    print('Interpolate data...')
+    print('Start loop...')
     list = []
     for i_phi_bin in tqdm(range(len(phi_bin_edges)-1)):
         
@@ -39,6 +38,8 @@ def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
             
             umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
             
+            #print(phi_mean, umu_mean)
+            
             data_cut = merged_data.reflectivity\
             .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
@@ -47,17 +48,18 @@ def fast_retrieve(invertedLUT_path, merged_data, umu_bins=5, phi_bins=10):
                   how='all')
            
             if data_cut.x.size != 0:
+                #print('Interpolate LUT...')
                 LUT = inverted.sel(phi=phi_mean, umu=umu_mean, method='nearest')
 
-                result = LUT.interp(R_640=data_cut.sel(wavelength=640, 
+                result = LUT.interp(Rone=data_cut.sel(wavelength=wvl1, 
                                                        method='nearest'), 
-                                    R_2150=data_cut.sel(wavelength=2150, 
+                                    Rtwo=data_cut.sel(wavelength=wvl2, 
                                                         method='nearest'))
                 
                 result['r_eff'] = result.sel(input_params='r_eff').reflectivity
                 result['tau550'] = result.sel(input_params='tau550').reflectivity
 
-                list.append(result.drop_vars(['phi', 'umu', 'wvl_2', 
+                list.append(result.drop_vars(['phi', 'umu', 
                                               'reflectivity', 'input_params']))
                
     print('Merge output...')
@@ -82,6 +84,9 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
 
 
 def fix_radiance(scene, thresh=1.25, window=3):
+    """Does not work for radiance data is Dask array format. Has to be loaded
+    to memory."""
+    
     #bad_pixels_fixed = scene.radiance.where(scene.valid==1).\
     #interpolate_na(dim='x', method='spline', use_coordinate=False)
     
@@ -95,11 +100,19 @@ def fix_radiance(scene, thresh=1.25, window=3):
     return fixed_scene
 
 
-def get_view_angles(mounttree_file_path, nas_scene, solar_positions,
+def get_phi_variable(view_angles, solar_positions):
+    return (view_angles.vaa - solar_positions.saa.mean())%360
+
+def get_umu_variable(view_angles):
+    return np.cos(2.*np.pi*view_angles.vza/360.)
+
+
+def get_vnir_view_angles(mounttree_file_path, nas_scene, solar_positions,
                     vnir_scene, swir_scene):
     
     halo = Halo.from_datasets(mounttree_file_path, nas_scene, [vnir_scene, 
                                                                swir_scene])
+    
     view_angles = halo.get_abs_view_angles('vnir').isel(wavelength=0)
 
     phis = (view_angles.vaa - solar_positions.saa.mean())%360
@@ -122,6 +135,43 @@ def format_data(vnir_scene, swir_scene, swir_corrected):
 
     measurements = measurements.interp(x = x)
     return measurements
+
+
+def load_AC3_SWIR_scene(start_time, end_time):
+    """Takes specific time in string format and returns nc files as xarray datasets: 
+    vnir_scene, swir_scene, bahamas_data"""
+    
+    day = start_time.strftime("%Y%m%d")
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    if day != end_time.strftime("%Y%m%d"):
+        print("Error: Start and end time have to be on the same day!")
+    
+    # Format slightly larger time frame for nas file, in order to avoid overlap
+    nas_start_time = start_time - datetime.timedelta(seconds=1)
+    nas_end_time = end_time + datetime.timedelta(seconds=1)
+    nas_interval = (nas_start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                    nas_end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    print("Load bahamas data...")
+    source_folder='/archive/meteo/ac3/'+day+'/'
+    nas_day_path = source_folder+"nas/AC3_HALO_BAHAMAS-SPECMACS-100Hz-final_"+day+"a.nc"
+    nas_day = read_LUT(nas_day_path)
+    nas_scene = nas_day.sel(time=slice(*nas_interval))
+    del(nas_day)
+    
+    print("Load and calibrate SWIR data...")
+    files = sorted(glob.glob(os.path.join(source_folder, "raw/specMACS.swir.*.flatds")))
+    auxdata = glob.glob(os.path.join(source_folder, "auxdata/swir_"+day+"*.log"))
+    swir_cal = "/archive/meteo/ac3/specmacs_calibration_data/specMACS_SWIR_cal_AC3.nc"
+    swir_day = macsproc.load_measurement_files(files, auxdata, swir_cal, "swir")
+    
+    swir_scene = swir_day.sel(time=slice(*interval))[["radiance", "alt", "act", "valid"]]
+    
+    del(swir_day)
+        
+    return swir_scene, nas_scene
 
 
 def load_AC3_scene(start_time, end_time):
@@ -333,6 +383,9 @@ def load_solar_flux_kurudz():
 
 
 def get_solar_positions(nas_file, mounttree_file_path):
+    """Returns all relevant information about Sun-Earth distance and solar 
+    position in order to compute cloud reflectivity information and get
+    relevant ranges for LUT simulation."""
   
     sun = macstrace.Ephemeris.Sun.from_datasets(mounttree_file_path, nas_file)
     solar_positions = sun.get_sza_az(time=nas_file.time.values)
@@ -347,17 +400,23 @@ def get_solar_positions(nas_file, mounttree_file_path):
 def read_LUT(LUTpath, rename = False):
     
     LUT = nc.Dataset(LUTpath)
+    """
     if rename:
-        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).rename({"__xarray_dataarray_variable__" : rename})
+        LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT)).\
+        rename({"__xarray_dataarray_variable__" : rename})
     else:
         LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
+        """
+    LUT = xr.open_dataset(xr.backends.NetCDF4DataStore(LUT))
     
     return LUT
 
 
 def get_measurement_arrays(measurementLUT, wvl1, wvl2):
-    """Takes a LUT containing measurements and knowledge about the corresponsing "correct" values for r_eff and tau550. Returns 
-    arrays containing all relevant combinations to be passed to the luti invert_data_array function."""
+    """Takes a LUT containing measurements and knowledge about the 
+    corresponsing "correct" values for r_eff and tau550. Returns
+    arrays containing all relevant combinations to be passed to the luti 
+    invert_data_array function."""
     
     LUTcut = measurementLUT
     r_eff_array = LUTcut.coords["r_eff"]
@@ -373,18 +432,21 @@ def get_measurement_arrays(measurementLUT, wvl1, wvl2):
         cloud_param_array[line,0]=LUTcut.coords["r_eff"].values[ir_eff]
         cloud_param_array[line,1]=LUTcut.coords["tau550"].values[itau550]
 
-        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, tau550CPUs=itau550).sel(wvl=wvl1).reflectivity.values
-        reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, tau550=itau550).sel(wvl=wvl2).reflectivity.values
+        reflectivity_array[line,0]=LUTcut.isel(r_eff = ir_eff, 
+                          tau550CPUs=itau550).sel(wvl=wvl1).reflectivity.values
+        reflectivity_array[line,1]=LUTcut.isel(r_eff = ir_eff, 
+                          tau550=itau550).sel(wvl=wvl2).reflectivity.values
     
     return reflectivity_array, cloud_param_array
         
 
 def get_retrieval_stats(LUT, measuredLUT, wvl1, wvl2, display=True, savefig=None):
-    """Takes a reference LUT and measured values and returns the retrieval accuracy.
-    Coordinates have to be already cut to perspective, i.e phi and umu as well as sza have to be chosen before handing the 
-    files to the function. . """
+    """Takes a reference LUT and measured values and returns the retrieval 
+    accuracy. Coordinates have to be already cut to perspective, i.e phi and 
+    umu as well as sza have to be chosen before handing the files to the function. """
     
-    reflectivity_array, cloud_param_array = get_measurement_arrays(measuredLUT, wvl1, wvl2)
+    reflectivity_array, cloud_param_array = get_measurement_arrays(measuredLUT,
+                                                                   wvl1, wvl2)
     
     # Format LUT to pass to interpolation function. 
     LUTcut = LUT.sel(wvl=[wvl1,wvl2])

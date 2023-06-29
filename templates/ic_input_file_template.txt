@@ -1,5 +1,5 @@
 data_files_path /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data
-atmosphere_file /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data/atmmod/afglus.dat
+atmosphere_file /project/meteo/work/Dennys.Erdtmann/Thesis/libRadtran-2.0.4/data/atmmod/afglsw.dat
 
 source solar
 
