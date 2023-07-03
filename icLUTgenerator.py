@@ -121,13 +121,18 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
         print("Computing habit: ", ic_habit)
         for isza in range(len(sza_array)):
             ziplock_args = zip(cloud_index_vector,
-                               it.repeat(wvl_array), it.repeat(phi_array), 
-                               it.repeat(umu_array), it.repeat(isza), 
-                               it.repeat(sza_array), it.repeat(r_eff_array),
-                               it.repeat(tau550_array), it.repeat(phi0), 
+                               it.repeat(wvl_array), 
+                               it.repeat(phi_array), 
+                               it.repeat(umu_array), 
+                               it.repeat(isza), 
+                               it.repeat(sza_array), 
+                               it.repeat(r_eff_array),
+                               it.repeat(tau550_array), 
+                               it.repeat(phi0), 
                                it.repeat(cloud_top_distance),
                                it.repeat(wvl_grid_file_path),
-                               it.repeat(ic_habit), it.repeat(surface_roughness),
+                               it.repeat(ic_habit), 
+                               it.repeat(surface_roughness),
                                it.repeat(ic_properties))
             
             print("Open pool...")

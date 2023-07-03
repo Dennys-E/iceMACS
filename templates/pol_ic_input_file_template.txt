@@ -22,17 +22,12 @@ mc_polarisation
 
 zout {{ zout }}
 
-brdf_cam u10 7 # Other variables set to default
+bpdf_tsang_u10 7
 
 ic_file 1D {{ cloud_file_path }}
 ic_modify tau550 set {{tau550}}
 
 ic_properties {{ ic_properties }} interpolate
 {{habit_mode}} {{ ic_habit }} {{ surface_roughness }}
-
-#aerosol_default
-
-output_user wavelength uu
-output_quantity reflectivity
 
 verbose

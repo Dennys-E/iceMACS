@@ -97,6 +97,28 @@ def get_uvspec_output(input_file_path, temp_path):
     return return_value
 
 
+def get_formatted_mystic_output(input_file_path, temp_path):
+    """Returns Stokes vectors for each wavelengths, as returned by mystic.
+    """
+    
+    f = open(input_file_path, 'r')
+    input_file = f.read()
+    f.close()
+    
+    result = subprocess.run([UVSPEC_PATH], input = input_file, 
+                            capture_output=False, encoding='ascii')
+    
+    f = open(temp_path+'/mc.rad.spc', 'r')
+    mystic_output = np.loadtxt(f)
+    f.close()
+    
+    n_wvl = np.int(np.shape(mystic_output)[0]/4.)
+    
+    stokes_params = mystic_output[:,-1].reshape(n_wvl, 4)
+    
+    return stokes_params
+
+
 def get_formatted_uvspec_output(input_file_path, nwvl, numu, nphi, temp_path):
     
     """Returns uvspec output as an array of the format (wvl, umu, phi) instead 
