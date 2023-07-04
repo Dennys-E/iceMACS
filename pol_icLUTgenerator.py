@@ -63,17 +63,14 @@ def get_pol_ic_stokes_params(args):
         "ic_properties"             : ic_properties
     }
     
-    input_file_template_path = INPUT_FILES_DIR+'/ic_input_file_template.txt'
-                   
-    os.chdir(temp_dir_path)         
+    input_file_template_path = INPUT_FILES_DIR+'/pol_ic_input_file_template.txt'
+                           
     write_input_file(input_file_template_path, generated_input_file_path, 
                      input_file_args)
     
-    print(os.getcwd(), os.path.dirname(os.path.realpath(__file__)))
-    os.chdir(temp_dir_path)
-    
     uvspec_result = get_formatted_mystic_output(generated_input_file_path,
                                                 temp_dir_path) 
+    
         
     # Delete tree of temporary dir
     shutil.rmtree(temp_dir_path, ignore_errors=True)
@@ -87,8 +84,8 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
                     surface_roughness="severe", CPUs=8, description=""):
     
     start_time = timer()
-    temp_dir_path = tempfile.mkdtemp()
-    wvl_grid_file_path = temp_dir_path+'/wvl_grid_file.txt'
+    #temp_dir_path = tempfile.mkdtemp()
+    wvl_grid_file_path = os.getcwd()+'wvl_grid_file.txt'
     write_wavelength_grid_file(wvl_grid_file_path, wvl_array)
     
     # Initialise data array. Last indicated dimension of size four are the
@@ -131,7 +128,7 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             
                     print("Open pool...")
                     with Pool(processes = CPUs) as p:
-                        stokes_params = np.array(p.map(get_pol_ic_stokes_params, 
+                        mystic_results = np.array(p.map(get_pol_ic_stokes_params, 
                                                        ziplock_args))
                     p.close()
                     end_of_pool_time = timer()
@@ -141,23 +138,22 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
                         ir_eff, itau550 = cloud_index_array[icloud]
         
                         stokes_params[:, iphi, iumu, isza, 
-                                      ir_eff, itau550, ihabit] = \
-                                      uvspec_results[icloud, :] 
+                                      ir_eff, itau550, ihabit, :] = \
+                                      mystic_results[icloud, :] 
     
     print("Done!")
     # Clear temporary path
-    shutil.rmtree(temp_dir_path, ignore_errors=True)
     
-    """
     # Format as xr DataArray
-    file = open("InputFiles/ic_input_file_template.txt", "r")
+    file = open(INPUT_FILES_DIR+"/pol_ic_input_file_template.txt", "r")
     template = file.read()
     file.close()
     
     print("Format results as Xarray DataArray...")
-    LUT = xr.DataArray(
+    
+    I = xr.DataArray(
         
-        data=reflectivity,
+        data=stokes_params[:,:,:,:,:,:,:,0],
         
         dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
         
@@ -175,9 +171,76 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             units="",
             descr=description,
             input_template = template,)
-    )
+    ).rename('I')
+
+    Q = xr.DataArray(
+        
+        data=stokes_params[:,:,:,:,:,:,:,1],
+        
+        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
+        
+        coords=dict(
+            wvl = wvl_array,
+            phi = phi_array,
+            umu = umu_array,
+            sza = sza_array,
+            r_eff = r_eff_array,
+            tau550 = tau550_array,
+            ic_habit = ic_habit_array),
+        
+        attrs=dict(
+            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            units="",
+            descr=description,
+            input_template = template,)
+    ).rename('Q')
     
-    LUT = LUT.rename("reflectivity")
+    U = xr.DataArray(
+        
+        data=stokes_params[:,:,:,:,:,:,:,2],
+        
+        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
+        
+        coords=dict(
+            wvl = wvl_array,
+            phi = phi_array,
+            umu = umu_array,
+            sza = sza_array,
+            r_eff = r_eff_array,
+            tau550 = tau550_array,
+            ic_habit = ic_habit_array),
+        
+        attrs=dict(
+            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            units="",
+            descr=description,
+            input_template = template,)
+    ).rename('U')
+   
+    V = xr.DataArray(
+        
+        data=stokes_params[:,:,:,:,:,:,:,3],
+        
+        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
+        
+        coords=dict(
+            wvl = wvl_array,
+            phi = phi_array,
+            umu = umu_array,
+            sza = sza_array,
+            r_eff = r_eff_array,
+            tau550 = tau550_array,
+            ic_habit = ic_habit_array),
+        
+        attrs=dict(
+            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            units="",
+            descr=description,
+            input_template = template,)
+    ).rename('V')
+        
+    LUT = xr.merge([I, Q, U, V])
+    
     LUT.wvl.attrs["units"] = r'nm'
     LUT.phi.attrs["units"] = r'degrees'
     LUT.sza.attrs["units"] = r'degrees'
@@ -185,10 +248,11 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
     end_time = timer()
     elapsed_time = (end_time - start_time)/60.
     pool_time = (end_of_pool_time - start_time)/60.
-    LUT.attrs["computation_time[min]"] = elapsed_time
     print("Write LUT to netCDF file...")
+    LUT.attrs["computation_time[min]"] = elapsed_time
+    
     save_as_netcdf(LUT, LUTpath)
-    """
+    
     print('--------------------------------------------------------------------------------')
     print("LUT saved under"+LUTpath)    
     file_stats = os.stat(LUTpath)

@@ -5,8 +5,11 @@ import numpy as np
 from jinja2 import Template, StrictUndefined
 import subprocess
 import itertools as it
+import os
+import sh
 from .paths import *
 
+uvspec = sh.Command('uvspec')
 
 def write_wavelength_grid_file(fpath, wvl_array):                             
     """Saves array as formated txt to be passed to uvspec"""
@@ -97,24 +100,30 @@ def get_uvspec_output(input_file_path, temp_path):
     return return_value
 
 
-def get_formatted_mystic_output(input_file_path, temp_path):
+def get_formatted_mystic_output(generated_input_file_path, temp_dir_path):
     """Returns Stokes vectors for each wavelengths, as returned by mystic.
     """
     
-    f = open(input_file_path, 'r')
+    f = open(generated_input_file_path, 'r')
     input_file = f.read()
     f.close()
     
-    result = subprocess.run([UVSPEC_PATH], input = input_file, 
-                            capture_output=False, encoding='ascii')
+    original_dir = os.getcwd()
+    #print('Original working directory: ', original_dir)
+    os.chdir(temp_dir_path)
+    #print('Changed to: ', os.getcwd())
+    uvspec(_in=input_file)
     
-    f = open(temp_path+'/mc.rad.spc', 'r')
+    #print(os.listdir())
+    
+    f = open(temp_dir_path+'/mc.rad.spc', 'r')
     mystic_output = np.loadtxt(f)
     f.close()
     
     n_wvl = np.int(np.shape(mystic_output)[0]/4.)
     
     stokes_params = mystic_output[:,-1].reshape(n_wvl, 4)
+    os.chdir(original_dir)
     
     return stokes_params
 

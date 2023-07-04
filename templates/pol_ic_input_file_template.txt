@@ -16,7 +16,7 @@ phi {{ phi }}
 rte_solver mystic
 mc_vroom on
 mc_escape on
-mc_photons 1000
+mc_photons 50000
 
 mc_polarisation
 
