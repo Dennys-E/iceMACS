@@ -14,24 +14,14 @@ from .paths import *
 
 def get_pol_ic_stokes_params(args):
         
-    cloud_property_indices, wvl_array, phi, umu, isza,\
-    sza_array, r_eff_array, tau550_array, phi0, cloud_top_distance,\
+    tau550, r_eff, wvl_array, phi, umu, sza,\
+    cloud_top_distance,\
     wvl_grid_file_path, ic_habit, surface_roughness, ic_properties = args
-        
-    ir_eff, itau550 = cloud_property_indices
-    
-    r_eff = r_eff_array[ir_eff]
-    tau550 = tau550_array[itau550]
-    sza = sza_array[isza]
         
     temp_dir_path = tempfile.mkdtemp()
         
     cloud_file_path = temp_dir_path+'/temp_cloud_file.dat'
     generated_input_file_path = temp_dir_path+'/temp_input.inp'
-        
-    if len(r_eff_array) is not len(tau550_array):
-        print("Cloud property arrays must have the same shape!")
-        return
     
     # Define cloud structure and generate ic file with corresponding values
     altitude_grid = np.array([7, 8, 9, 10])
@@ -51,7 +41,6 @@ def get_pol_ic_stokes_params(args):
     input_file_args = {
         "wavelength_grid_file_path" : wvl_grid_file_path,
         "sza"                       : sza,
-        "phi0"                      : phi0,
         "umu"                       : umu,
         "phi"                       : phi,
         "zout"                      : cloud_top + cloud_top_distance, 
@@ -107,39 +96,39 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
         for isza in range(len(sza_array)):
             for iumu in range(len(umu_array)):
                 for iphi in range(len(phi_array)):
+                    for ir_eff in range(len(r_eff_array)):
                     
-                    umu = umu_array[iumu]
-                    phi = phi_array[iphi]
-                    
-                    ziplock_args = zip(cloud_index_vector,
-                                       it.repeat(wvl_array),
-                                       it.repeat(phi), 
-                                       it.repeat(umu), 
-                                       it.repeat(isza), 
-                                       it.repeat(sza_array), 
-                                       it.repeat(r_eff_array),
-                                       it.repeat(tau550_array),
-                                       it.repeat(phi0), 
-                                       it.repeat(cloud_top_distance),
-                                       it.repeat(wvl_grid_file_path),
-                                       it.repeat(ic_habit), 
-                                       it.repeat(surface_roughness),
-                                       it.repeat(ic_properties))
+                        r_eff = r_eff_array[ir_eff]
+                        sza = sza_array[isza]
+                        umu = umu_array[iumu]
+                        phi = phi_array[iphi]
+                        
+                        ziplock_args = zip(tau550_array,
+                                           it.repeat(r_eff),
+                                           it.repeat(wvl_array),
+                                           it.repeat(phi), 
+                                           it.repeat(umu), 
+                                           it.repeat(sza), 
+                                           it.repeat(cloud_top_distance),
+                                           it.repeat(wvl_grid_file_path),
+                                           it.repeat(ic_habit), 
+                                           it.repeat(surface_roughness),
+                                           it.repeat(ic_properties))
+                
+                        print("Open pool for ", "r_eff=", r_eff, "phi=", phi, 
+                              "umu=", umu, "sza=", sza)
+                        with Pool(processes = CPUs) as p:
+                            mystic_results = np.array(p.map(get_pol_ic_stokes_params, 
+                                                           ziplock_args))
+                        p.close()
+                        end_of_pool_time = timer()
+                        print("Pool closed")
+                        print('Rearanging output...')
+                        for itau550 in range(len(tau550_array)):
             
-                    print("Open pool...")
-                    with Pool(processes = CPUs) as p:
-                        mystic_results = np.array(p.map(get_pol_ic_stokes_params, 
-                                                       ziplock_args))
-                    p.close()
-                    end_of_pool_time = timer()
-                    print("Pool closed")
-                    print('Rearanging output...')
-                    for icloud in range(len(cloud_index_array)):
-                        ir_eff, itau550 = cloud_index_array[icloud]
-        
-                        stokes_params[:, iphi, iumu, isza, 
-                                      ir_eff, itau550, ihabit, :] = \
-                                      mystic_results[icloud, :] 
+                            stokes_params[:, iphi, iumu, isza, 
+                                          ir_eff, itau550, ihabit, :] = \
+                                          mystic_results[itau550, :] 
     
     print("Done!")
     # Clear temporary path
@@ -167,7 +156,7 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             ic_habit = ic_habit_array),
         
         attrs=dict(
-            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            measurement="Stokes parameters as measured " + str(cloud_top_distance) +" km above cloud top",
             units="",
             descr=description,
             input_template = template,)
@@ -189,7 +178,7 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             ic_habit = ic_habit_array),
         
         attrs=dict(
-            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
             units="",
             descr=description,
             input_template = template,)
@@ -211,7 +200,7 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             ic_habit = ic_habit_array),
         
         attrs=dict(
-            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
             units="",
             descr=description,
             input_template = template,)
@@ -233,7 +222,7 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             ic_habit = ic_habit_array),
         
         attrs=dict(
-            measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
+            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
             units="",
             descr=description,
             input_template = template,)

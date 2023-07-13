@@ -8,7 +8,7 @@ mol_abs_param reptran coarse
 wavelength_grid_file {{ wavelength_grid_file_path }}
 
 sza {{ sza }}
-phi0 {{ phi0 }}
+phi0 0
 
 umu {{ umu }}
 phi {{ phi }}
@@ -16,7 +16,7 @@ phi {{ phi }}
 rte_solver mystic
 mc_vroom on
 mc_escape on
-mc_photons 50000
+mc_photons 250000
 
 mc_polarisation
 
