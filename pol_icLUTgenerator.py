@@ -6,7 +6,7 @@ import tempfile
 import shutil
 import itertools as it
 from multiprocessing import Pool
-from .simulation_tools import write_cloud_file, write_input_file, get_formatted_mystic_output,\
+from .simulation_tools import write_cloud_file, write_input_file_from_RAM, get_formatted_mystic_output,\
 get_formatted_uvspec_output, write_wavelength_grid_file, get_index_combinations
 from .tools import save_as_netcdf
 from .paths import *
@@ -16,7 +16,7 @@ def get_pol_ic_stokes_params(args):
         
     tau550, r_eff, wvl_array, phi, umu, sza,\
     cloud_top_distance,\
-    wvl_grid_file_path, ic_habit, surface_roughness, ic_properties = args
+    wvl_grid_file_path, ic_habit, surface_roughness, ic_properties, input_file_template = args
         
     temp_dir_path = tempfile.mkdtemp()
         
@@ -52,9 +52,9 @@ def get_pol_ic_stokes_params(args):
         "ic_properties"             : ic_properties
     }
     
-    input_file_template_path = INPUT_FILES_DIR+'/pol_ic_input_file_template.txt'
+    #input_file_template_path = INPUT_FILES_DIR+'/pol_ic_input_file_template.txt'
                            
-    write_input_file(input_file_template_path, generated_input_file_path, 
+    write_input_file_from_RAM(input_file_template, generated_input_file_path, 
                      input_file_args)
     
     uvspec_result = get_formatted_mystic_output(generated_input_file_path,
@@ -67,7 +67,7 @@ def get_pol_ic_stokes_params(args):
     return uvspec_result
 
 
-def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, 
+def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, sza_array, 
                     r_eff_array, tau550_array, ic_habit_array, phi0=0, 
                     cloud_top_distance=1, ic_properties="baum_v36", 
                     surface_roughness="severe", CPUs=8, description=""):
@@ -83,6 +83,10 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
                              len(sza_array), len(r_eff_array), 
                              len(tau550_array), len(ic_habit_array), 4))
     
+    stokes_std = np.ones((len(wvl_array), len(phi_array), len(umu_array), 
+                             len(sza_array), len(r_eff_array), 
+                             len(tau550_array), len(ic_habit_array), 4))
+    
         
     # Compute vector to be passed to the pool.map function. Includes all
     # relevant index combinations for 'tau550' 'r_eff'. 
@@ -90,6 +94,10 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
     cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
         
     # Looping over entries in data array
+    
+    ntasks = len(ic_habit_array)*len(sza_array)*len(umu_array)*len(phi_array)*len(r_eff_array)
+    print('Toatal calls to compute: ', ntasks)
+    current_call = 1
     for ihabit in range(len(ic_habit_array)):
         ic_habit = ic_habit_array[ihabit]
         print("Computing habit: ", ic_habit)
@@ -97,7 +105,8 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             for iumu in range(len(umu_array)):
                 for iphi in range(len(phi_array)):
                     for ir_eff in range(len(r_eff_array)):
-                    
+                        print('Call: ', current_call, '/', ntasks)
+                        
                         r_eff = r_eff_array[ir_eff]
                         sza = sza_array[isza]
                         umu = umu_array[iumu]
@@ -113,122 +122,85 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
                                            it.repeat(wvl_grid_file_path),
                                            it.repeat(ic_habit), 
                                            it.repeat(surface_roughness),
-                                           it.repeat(ic_properties))
+                                           it.repeat(ic_properties),
+                                           it.repeat(input_file_template))
                 
                         print("Open pool for ", "r_eff=", r_eff, "phi=", phi, 
                               "umu=", umu, "sza=", sza)
+                        
+                        start_of_pool_time = timer()
                         with Pool(processes = CPUs) as p:
                             mystic_results = np.array(p.map(get_pol_ic_stokes_params, 
-                                                           ziplock_args))
+                                                            ziplock_args))
                         p.close()
                         end_of_pool_time = timer()
-                        print("Pool closed")
+                        last_call_time = end_of_pool_time-start_of_pool_time
+                        print("Pool closed, took: ", last_call_time, "s")
+                        time_estimate = (ntasks-current_call)*last_call_time
+                        print("Estimated remaining time: ", time_estimate/60., "min")
+                        current_call += 1                  
                         print('Rearanging output...')
                         for itau550 in range(len(tau550_array)):
             
                             stokes_params[:, iphi, iumu, isza, 
                                           ir_eff, itau550, ihabit, :] = \
-                                          mystic_results[itau550, :] 
+                                          mystic_results[itau550, 0, :] 
+                                          
+                            stokes_std[:, iphi, iumu, isza, 
+                                       ir_eff, itau550, ihabit, :] = \
+                                       mystic_results[itau550, 1, :] 
+    
     
     print("Done!")
-    # Clear temporary path
     
     # Format as xr DataArray
-    file = open(INPUT_FILES_DIR+"/pol_ic_input_file_template.txt", "r")
-    template = file.read()
-    file.close()
     
     print("Format results as Xarray DataArray...")
     
-    I = xr.DataArray(
-        
-        data=stokes_params[:,:,:,:,:,:,:,0],
-        
-        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
-        
-        coords=dict(
+    dims = ["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"]
+    coords = dict(
             wvl = wvl_array,
             phi = phi_array,
             umu = umu_array,
             sza = sza_array,
             r_eff = r_eff_array,
             tau550 = tau550_array,
-            ic_habit = ic_habit_array),
-        
-        attrs=dict(
-            measurement="Stokes parameters as measured " + str(cloud_top_distance) +" km above cloud top",
-            units="",
-            descr=description,
-            input_template = template,)
-    ).rename('I')
-
-    Q = xr.DataArray(
-        
-        data=stokes_params[:,:,:,:,:,:,:,1],
-        
-        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
-        
-        coords=dict(
-            wvl = wvl_array,
-            phi = phi_array,
-            umu = umu_array,
-            sza = sza_array,
-            r_eff = r_eff_array,
-            tau550 = tau550_array,
-            ic_habit = ic_habit_array),
-        
-        attrs=dict(
-            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
-            units="",
-            descr=description,
-            input_template = template,)
-    ).rename('Q')
+            ic_habit = ic_habit_array)
     
-    U = xr.DataArray(
+    I = xr.DataArray(data=stokes_params[:,:,:,:,:,:,:,0], 
+                     dims=dims,
+                     coords=coords).rename('I')
+    
+    Q = xr.DataArray(data=stokes_params[:,:,:,:,:,:,:,1], 
+                     dims=dims,
+                     coords=coords).rename('Q')
+    
+    U = xr.DataArray(data=stokes_params[:,:,:,:,:,:,:,2], 
+                     dims=dims,
+                     coords=coords).rename('U')
+    
+    V = xr.DataArray(data=stokes_params[:,:,:,:,:,:,:,3], 
+                     dims=dims,
+                     coords=coords).rename('V')
+    
+    I_std = xr.DataArray(data=stokes_std[:,:,:,:,:,:,:,0], 
+                     dims=dims,
+                     coords=coords).rename('I_std')
+    
+    Q_std = xr.DataArray(data=stokes_std[:,:,:,:,:,:,:,1], 
+                     dims=dims,
+                     coords=coords).rename('Q_std')
+    
+    U_std = xr.DataArray(data=stokes_std[:,:,:,:,:,:,:,2], 
+                     dims=dims,
+                     coords=coords).rename('U_std')
+    
+    V_std = xr.DataArray(data=stokes_std[:,:,:,:,:,:,:,3], 
+                     dims=dims,
+                     coords=coords).rename('V_std')
+
         
-        data=stokes_params[:,:,:,:,:,:,:,2],
-        
-        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
-        
-        coords=dict(
-            wvl = wvl_array,
-            phi = phi_array,
-            umu = umu_array,
-            sza = sza_array,
-            r_eff = r_eff_array,
-            tau550 = tau550_array,
-            ic_habit = ic_habit_array),
-        
-        attrs=dict(
-            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
-            units="",
-            descr=description,
-            input_template = template,)
-    ).rename('U')
-   
-    V = xr.DataArray(
-        
-        data=stokes_params[:,:,:,:,:,:,:,3],
-        
-        dims=["wvl", "phi", "umu", "sza", "r_eff", "tau550", "ic_habit"],
-        
-        coords=dict(
-            wvl = wvl_array,
-            phi = phi_array,
-            umu = umu_array,
-            sza = sza_array,
-            r_eff = r_eff_array,
-            tau550 = tau550_array,
-            ic_habit = ic_habit_array),
-        
-        attrs=dict(
-            measurement="Stokes parameters as measured  " + str(cloud_top_distance) +" km above cloud top",
-            units="",
-            descr=description,
-            input_template = template,)
-    ).rename('V')
-        
-    LUT = xr.merge([I, Q, U, V])
+    LUT = xr.merge([I, Q, U, V, I_std, Q_std, U_std, V_std])
     
     LUT.wvl.attrs["units"] = r'nm'
     LUT.phi.attrs["units"] = r'degrees'
@@ -236,17 +208,18 @@ def write_pol_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
     LUT.r_eff.attrs["units"] = r'$\mu $m'
     end_time = timer()
     elapsed_time = (end_time - start_time)/60.
-    pool_time = (end_of_pool_time - start_time)/60.
     print("Write LUT to netCDF file...")
-    LUT.attrs["computation_time[min]"] = elapsed_time
-    
+    LUT.attrs=dict(measurement="Stokes parameters as measured " + str(cloud_top_distance) +" km above cloud top",
+                   descr=description,
+                   input_template = input_file_template,
+                   computation_time = str(elapsed_time)+'[min]')
+
     save_as_netcdf(LUT, LUTpath)
     
     print('--------------------------------------------------------------------------------')
-    print("LUT saved under"+LUTpath)    
+    print("LUT saved under "+LUTpath)    
     file_stats = os.stat(LUTpath)
     print(f'File Size in MegaBytes is {file_stats.st_size / (1024 * 1024)}')
-    print('Simulation took %f6 minutes.' %pool_time)
     print('Computation took %f6 minutes.' %elapsed_time)
     
     return

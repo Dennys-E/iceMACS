@@ -19,6 +19,9 @@ mc_escape on
 mc_photons 250000
 
 mc_polarisation
+mc_std
+
+mc_maxscatters 5
 
 zout {{ zout }}
 

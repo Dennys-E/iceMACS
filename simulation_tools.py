@@ -9,9 +9,9 @@ import os
 import sh
 from .paths import *
 
-uvspec = sh.Command('uvspec')
+uvspec = sh.Command(UVSPEC_PATH)
 
-def write_wavelength_grid_file(fpath, wvl_array):                             
+def write_wavelength_grid_file(fpath, wvl_array):                            
     """Saves array as formated txt to be passed to uvspec"""
     np.savetxt(fpath, wvl_array, delimiter=' ')
     
@@ -25,6 +25,19 @@ def write_cloud_file(fpath, altitude_grid, WC_array, r_eff_array):
         
     cloud_array = np.transpose(np.vstack((np.flip(altitude_grid), np.flip(WC_array), np.flip(r_eff_array))))
     np.savetxt(fpath, cloud_array, delimiter=' ')
+    
+    return
+
+
+def write_input_file_from_RAM(input_file_template, generated_input_file_path, input_file_args):
+
+    j2_template = Template(input_file_template, undefined=StrictUndefined)
+
+    generated_input_file = j2_template.render(input_file_args)
+
+    f = open(generated_input_file_path, 'w')
+    f.write(generated_input_file)
+    f.close()
     
     return
 
@@ -103,7 +116,6 @@ def get_uvspec_output(input_file_path, temp_path):
 def get_formatted_mystic_output(generated_input_file_path, temp_dir_path):
     """Returns Stokes vectors for each wavelengths, as returned by mystic.
     """
-    
     f = open(generated_input_file_path, 'r')
     input_file = f.read()
     f.close()
@@ -120,12 +132,17 @@ def get_formatted_mystic_output(generated_input_file_path, temp_dir_path):
     mystic_output = np.loadtxt(f)
     f.close()
     
+    f = open(temp_dir_path+'/mc.rad.std.spc', 'r')
+    std = np.loadtxt(f)
+    f.close()
+    
     n_wvl = np.int(np.shape(mystic_output)[0]/4.)
     
     stokes_params = mystic_output[:,-1].reshape(n_wvl, 4)
+    stokes_std = std[:,-1].reshape(n_wvl, 4)
     os.chdir(original_dir)
     
-    return stokes_params
+    return stokes_params, stokes_std
 
 
 def get_formatted_uvspec_output(input_file_path, nwvl, numu, nphi, temp_path):
@@ -139,7 +156,8 @@ def get_formatted_uvspec_output(input_file_path, nwvl, numu, nphi, temp_path):
     input_file = f.read()
     f.close()
 
-    result = subprocess.run([UVSPEC_PATH], input = input_file, capture_output=True, encoding='ascii')
+    result = subprocess.run([UVSPEC_PATH], input = input_file, 
+                            capture_output=True, encoding='ascii')
 
     output_temp = result.stdout
     
