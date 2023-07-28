@@ -96,7 +96,7 @@ def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_arra
     # Looping over entries in data array
     
     ntasks = len(ic_habit_array)*len(sza_array)*len(umu_array)*len(phi_array)*len(r_eff_array)
-    print('Toatal calls to compute: ', ntasks)
+    print('Total calls to compute: ', ntasks)
     current_call = 1
     for ihabit in range(len(ic_habit_array)):
         ic_habit = ic_habit_array[ihabit]

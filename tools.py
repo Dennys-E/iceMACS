@@ -93,6 +93,13 @@ def fix_radiance(scene, thresh=1.25, window=3):
     int_slopes = xr.ufuncs.square(scene.radiance.differentiate(coord='x')).\
     integrate(coord='time').rolling(x=window).mean()
     int_slopes = int_slopes/int_slopes.mean()
+    for wvl in scene.wavelength:
+        fig, ax = plt.subplots(nrows=1, figsize=(11,3), sharex=True)
+        int_slopes.sel(wavelength=wvl).plot(linewidth=0.9, linestyle='dotted', label='Integrated square spatial slopes')
+        ax.axhline(thresh, color='red', label=f"Filter cutoff at {thresh}")
+        ax.set_ylabel(r'Normalised signal $D(x)$')
+        plt.legend()
+        plt.show()
     sel_scene = scene.radiance.where(int_slopes<thresh)
     fixed_scene = sel_scene.interpolate_na(dim='x', method='spline', 
                                            use_coordinate=False)
