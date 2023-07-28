@@ -4,3 +4,19 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 ## Todos
 * Change string logs to modern f-string syntax
 * Change <code>open()</code> calls when reading files to <code>with open()</code> in order to ensure files are closed when exception occurs.
+* Instead of 
+* Find a way to avoid * imports in <code>__init__</code> file
+* Unify LUT generators, preferably into one single function.
+* Restructure submodules to avoid confusion
+* Add examples
+* Complete documentation under usage
+
+## Usage
+
+### Data calibration
+
+### Bispectral retrieval (BSR)
+
+### Habit detection
+
+### Additional functionalities

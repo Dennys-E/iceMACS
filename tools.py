@@ -87,19 +87,26 @@ def fix_radiance(scene, thresh=1.25, window=3):
     """Does not work for radiance data is Dask array format. Has to be loaded
     to memory."""
     
-    #bad_pixels_fixed = scene.radiance.where(scene.valid==1).\
-    #interpolate_na(dim='x', method='spline', use_coordinate=False)
+    # Fix pixels that occur in camera bad pixel list. More or less equivalent 
+    # to Tobi's bad_pixel_fixer 
+    scene['radiance'] = scene.radiance.where(scene.valid==1).\
+    interpolate_na(dim='x', method='spline', use_coordinate=False)
     
+    # Estimate unreliable pixels 
     int_slopes = xr.ufuncs.square(scene.radiance.differentiate(coord='x')).\
     integrate(coord='time').rolling(x=window).mean()
     int_slopes = int_slopes/int_slopes.mean()
+    # Log plots
     for wvl in scene.wavelength:
         fig, ax = plt.subplots(nrows=1, figsize=(11,3), sharex=True)
-        int_slopes.sel(wavelength=wvl).plot(linewidth=0.9, linestyle='dotted', label='Integrated square spatial slopes')
+        int_slopes.sel(wavelength=wvl).plot(linewidth=0.9, linestyle='dotted', 
+                                            label='Integrated square spatial slopes')
         ax.axhline(thresh, color='red', label=f"Filter cutoff at {thresh}")
         ax.set_ylabel(r'Normalised signal $D(x)$')
         plt.legend()
         plt.show()
+        
+    # Interpolate pixel rows over threshold for all frames
     sel_scene = scene.radiance.where(int_slopes<thresh)
     fixed_scene = sel_scene.interpolate_na(dim='x', method='spline', 
                                            use_coordinate=False)
