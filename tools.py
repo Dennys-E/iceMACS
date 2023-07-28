@@ -82,6 +82,42 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
     
     return swir_corrected
 
+class PixelInterpolator(object):
+    """The PixelInterpolator is supposed to replace the runmacs BadPixelFixer 
+    functionality. Since A(C)³ scenes are typically dark with low sun angle,
+    some pixels are unreliable, even though they might work for a different 
+    scene. You can choose to interpolate invalid pixels, according to the 
+    'valid' variable, or dynamically find unreliable pixel rows."""
+
+    def __init__(self, data, wavelengths):
+        self.data = data
+        self.wavelengths = wavelengths
+
+        # Estimate unreliable pixels 
+        int_slopes = np.square(data.radiance.differentiate(coord='x')).\
+        integrate(coord='time')
+        self.int_slopes = int_slopes/int_slopes.mean()
+
+        # Here, the int slopes variable is not yet a moving average
+
+    def show_signals(self):
+        # Plots normalised signal to choose thresholds.
+        for wvl in self.wavelengths: 
+            fig, ax = plt.subplots(nrows=1, figsize=(11,3), sharex=True)
+            self.int_slopes.sel(wavelength=wvl, method='nearest')\
+            .plot(linewidth=0.9, linestyle='dotted', 
+                  label='Integrated square spatial slopes')
+            ax.set_ylabel(r'Normalised signal $D(x)$')
+            plt.legend()
+            plt.show()
+
+    #def add_thresholds(self, thresholds):
+     #   self.thresholds = 
+
+        
+            
+
+
 
 def fix_radiance(scene, thresh=1.25, window=3):
     """Does not work for radiance data is Dask array format. Has to be loaded

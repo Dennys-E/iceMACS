@@ -7,9 +7,10 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 * Instead of 
 * Find a way to avoid * imports in <code>__init__</code> file
 * Unify LUT generators, preferably into one single function.
-* Restructure submodules to avoid confusion
+* Restructure submodules to avoid confusion. Add classes.
 * Add examples
 * Complete documentation under usage
+* Add a git submodules functionality
 
 ## Usage
 
