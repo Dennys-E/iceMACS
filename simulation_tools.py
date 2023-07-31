@@ -35,9 +35,8 @@ def write_input_file_from_RAM(input_file_template, generated_input_file_path, in
 
     generated_input_file = j2_template.render(input_file_args)
 
-    f = open(generated_input_file_path, 'w')
-    f.write(generated_input_file)
-    f.close()
+    with open(generated_input_file_path, 'w') as f:
+        f.write(generated_input_file)
     
     return
 
@@ -59,7 +58,7 @@ def write_input_file(input_file_template_path, generated_input_file_path, input_
     return
 
 
-def save_uvspec_output_under(input_file_path, output_file_path):
+def save_plain_uvspec_output_under(input_file_path, output_file_path):
     
     f = open(input_file_path, 'r')
     input_file = f.read()
@@ -88,10 +87,9 @@ def get_index_combinations(length):
     return cloud_index_array
 
 
-def get_uvspec_output(input_file_path, temp_path):
-    """Returns standard 2D uvspec output. File is temporarily saved in order to
-    ensure correct format.
-    """
+def get_plain_uvspec_output(input_file_path, temp_path):
+    """Returns standard 2D uvspec output. File is temporarily saved in order 
+    to ensure correct format."""
     
     f = open(input_file_path, 'r')
     input_file = f.read()
