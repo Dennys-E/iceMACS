@@ -82,6 +82,7 @@ def correct_swir_AC3(mounttree_file_path, nas_scene_file_path,
     
     return swir_corrected
 
+
 class PixelInterpolator(object):
     """The PixelInterpolator is supposed to replace the runmacs BadPixelFixer 
     functionality. Since A(C)³ scenes are typically dark with low sun angle,
@@ -89,65 +90,75 @@ class PixelInterpolator(object):
     scene. You can choose to interpolate invalid pixels, according to the 
     'valid' variable, or dynamically find unreliable pixel rows."""
 
-    def __init__(self, data, wavelengths):
+    def __init__(self, data, window=None):
         self.data = data
-        self.wavelengths = wavelengths
+        self.window = window
+        self.cutoffs = None
+        self.interpolated_from_list = False
+        self.applied_filter = False
 
         # Estimate unreliable pixels 
         int_slopes = np.square(data.radiance.differentiate(coord='x')).\
         integrate(coord='time')
-        self.int_slopes = int_slopes/int_slopes.mean()
-
-        # Here, the int slopes variable is not yet a moving average
+        self.data['int_slopes'] = int_slopes/int_slopes.mean()
+        if self.window is not None:
+            self.data['int_slopes_mva'] = self.data.int_slopes\
+                                          .rolling(x=self.window).mean()
 
     def show_signals(self):
         # Plots normalised signal to choose thresholds.
-        for wvl in self.wavelengths: 
+        for wvl in self.data.wavelength: 
             fig, ax = plt.subplots(nrows=1, figsize=(11,3), sharex=True)
-            self.int_slopes.sel(wavelength=wvl, method='nearest')\
+            self.data.int_slopes.sel(wavelength=wvl, method='nearest')\
             .plot(linewidth=0.9, linestyle='dotted', 
                   label='Integrated square spatial slopes')
+            if self.window is not None:
+                self.data.int_slopes_mva.sel(wavelength=wvl, method='nearest')\
+                .plot(linewidth=0.9, 
+                      label=f"Rolling average x={self.window} applied")
+            if self.cutoffs is not None:
+                cutoff = self.data.sel(wavelength=wvl).cutoff.values
+                ax.axhline(cutoff, 
+                           color='red', label=f"Filter cutoff at {cutoff}")
             ax.set_ylabel(r'Normalised signal $D(x)$')
             plt.legend()
             plt.show()
 
-    #def add_thresholds(self, thresholds):
-     #   self.thresholds = 
+    def add_cutoffs(self, cutoffs):
+        if len(cutoffs) != len(self.data.wavelength):
+            raise Exception("""Number of passed cutoffs does not equal 
+                            number of wavelengths in data""")
+        self.cutoffs = cutoffs
+        cutoff_da = xr.DataArray(data=self.cutoffs, dims="wavelength",
+                                 coords={"wavelength":self.data\
+                                         .wavelength.values})
+        self.data = self.data.assign(cutoff=cutoff_da)
 
+    def apply_bpl(self):
+        self.data['radiance'] = self.data.radiance.\
+                                where(self.data.valid==1).\
+                                interpolate_na(dim='x', method='spline', 
+                                               use_coordinate=False)
+        self.interpolated_from_list = True
+
+    def apply_filter(self):
+        if self.cutoffs is None:
+            raise Exception("""Enter cutoff list with 'add_cutoffs()'
+                            before applying filter""")
         
-            
-
-
-
-def fix_radiance(scene, thresh=1.25, window=3):
-    """Does not work for radiance data is Dask array format. Has to be loaded
-    to memory."""
-    
-    # Fix pixels that occur in camera bad pixel list. More or less equivalent 
-    # to Tobi's bad_pixel_fixer 
-    scene['radiance'] = scene.radiance.where(scene.valid==1).\
-    interpolate_na(dim='x', method='spline', use_coordinate=False)
-    
-    # Estimate unreliable pixels 
-    int_slopes = xr.ufuncs.square(scene.radiance.differentiate(coord='x')).\
-    integrate(coord='time').rolling(x=window).mean()
-    int_slopes = int_slopes/int_slopes.mean()
-    # Log plots
-    for wvl in scene.wavelength:
-        fig, ax = plt.subplots(nrows=1, figsize=(11,3), sharex=True)
-        int_slopes.sel(wavelength=wvl).plot(linewidth=0.9, linestyle='dotted', 
-                                            label='Integrated square spatial slopes')
-        ax.axhline(thresh, color='red', label=f"Filter cutoff at {thresh}")
-        ax.set_ylabel(r'Normalised signal $D(x)$')
-        plt.legend()
-        plt.show()
+        selection = self.data.radiance\
+                    .where(self.data.int_slopes_mva<self.data.cutoff)
         
-    # Interpolate pixel rows over threshold for all frames
-    sel_scene = scene.radiance.where(int_slopes<thresh)
-    fixed_scene = sel_scene.interpolate_na(dim='x', method='spline', 
-                                           use_coordinate=False)
-    
-    return fixed_scene
+        interpolated_radiance = selection.interpolate_na(dim='x', 
+                                                         method='spline', 
+                                                         use_coordinate=False)
+        self.data['radiance'] = interpolated_radiance
+        self.applied_filter = True
+
+    def get_filtered_radiance(self, with_bpl=True):
+        self.apply_bpl()
+        self.apply_filter()
+        return self.data.radiance
 
 
 def get_phi_variable(view_angles, solar_positions):

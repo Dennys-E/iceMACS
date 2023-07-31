@@ -14,7 +14,7 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 
 ## Usage
 
-### Data calibration
+### SWIR bad pixel interpolation
 
 ### Bispectral retrieval (BSR)
 
