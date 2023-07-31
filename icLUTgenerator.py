@@ -6,7 +6,7 @@ import tempfile
 import shutil
 import itertools as it
 from multiprocessing import Pool
-from .simulation_tools import write_cloud_file, write_input_file, \
+from .simulation_tools import write_cloud_file, write_input_file_from_RAM, \
 get_formatted_uvspec_output, write_wavelength_grid_file, get_index_combinations
 from .tools import save_as_netcdf
 from .paths import *
@@ -21,9 +21,10 @@ def get_ic_reflectivity(args):
     the LUT. 
     """
      
-    cloud_property_indices, wvl_array, phi_array, umu_array, isza,\
-    sza_array, r_eff_array, tau550_array, phi0, cloud_top_distance,\
-    wvl_grid_file_path, ic_habit, surface_roughness, ic_properties = args
+    (cloud_property_indices, input_file_template, wvl_array, phi_array, 
+    umu_array, isza, sza_array, r_eff_array, tau550_array, phi0, 
+    cloud_top_distance, wvl_grid_file_path, ic_habit, surface_roughness, 
+    ic_properties) = args
         
     ir_eff, itau550 = cloud_property_indices
     
@@ -77,8 +78,8 @@ def get_ic_reflectivity(args):
     
     input_file_template_path = INPUT_FILES_DIR+'/ic_input_file_template.txt'
                             
-    write_input_file(input_file_template_path, generated_input_file_path, 
-                     input_file_args)
+    write_input_file_from_RAM(input_file_template, generated_input_file_path, 
+                              input_file_args)
     
     nwvl = len(wvl_array)
     numu = len(umu_array)
@@ -94,7 +95,7 @@ def get_ic_reflectivity(args):
     return uvspec_result
 
 
-def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array, 
+def write_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, sza_array, 
                 r_eff_array, tau550_array, ic_habit_array, phi0=0, 
                 cloud_top_distance=1, ic_properties="baum_v36", 
                 surface_roughness="severe", CPUs=8, description=""):
@@ -121,6 +122,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
         print("Computing habit: ", ic_habit)
         for isza in range(len(sza_array)):
             ziplock_args = zip(cloud_index_vector,
+                               it.repeat(input_file_template),
                                it.repeat(wvl_array), 
                                it.repeat(phi_array), 
                                it.repeat(umu_array), 
@@ -154,10 +156,6 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
     shutil.rmtree(temp_dir_path, ignore_errors=True)
     
     # Format as xr DataArray
-    file = open("InputFiles/ic_input_file_template.txt", "r")
-    template = file.read()
-    file.close()
-    
     print("Format results as Xarray DataArray...")
     LUT = xr.DataArray(
         
@@ -178,7 +176,7 @@ def write_icLUT(LUTpath, wvl_array, phi_array, umu_array, sza_array,
             measurement="Reflectivity " + str(cloud_top_distance) +" km above cloud top",
             units="",
             descr=description,
-            input_template = template,)
+            input_template = input_file_template,)
     )
     
     LUT = LUT.rename("reflectivity")

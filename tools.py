@@ -21,9 +21,11 @@ from .paths import *
 
 def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
     
-    umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
+    umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy()\
+                                             .flatten(), 
                                              bins=umu_bins)
-    phi_counts, phi_bin_edges = np.histogram(merged_data.phi.to_numpy().flatten(), 
+    phi_counts, phi_bin_edges = np.histogram(merged_data.phi.to_numpy()\
+                                             .flatten(), 
                                              bins=phi_bins)
     
     inverted = inverted.sel(sza=merged_data.sza.mean(), method='nearest')
@@ -56,8 +58,10 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
                                     Rtwo=data_cut.sel(wavelength=wvl2, 
                                                         method='nearest'))
                 
-                result['r_eff'] = result.sel(input_params='r_eff').reflectivity
-                result['tau550'] = result.sel(input_params='tau550').reflectivity
+                result['r_eff'] = (result.sel(input_params='r_eff')
+                                   .reflectivity)
+                result['tau550'] = result.sel(input_params='tau550')\
+                                         .reflectivity
 
                 list.append(result.drop_vars(['phi', 'umu', 
                                               'reflectivity', 'input_params']))
@@ -91,17 +95,17 @@ class PixelInterpolator(object):
     'valid' variable, or dynamically find unreliable pixel rows. data should
     contain a 'radiance' variable."""
 
-    def __init__(self, data, window=None):
-        self.data = data
+    def __init__(self, swir_ds, window=None):
+        self.data = swir_ds.copy()
         self.window = window
         self.cutoffs = None
         self.interpolated_from_list = False
         self.applied_filter = False
 
         # Estimate unreliable pixels 
-        int_slopes = np.square(data.radiance.differentiate(coord='x')).\
-        integrate(coord='time')
-        self.data['int_slopes'] = int_slopes/int_slopes.mean()
+        int_slopes = (np.square(swir_ds.radiance.differentiate(coord='x'))
+                      .integrate(coord='time'))
+        self.data['int_slopes'] = int_slopes/int_slopes.mean(dim='x')
         if self.window is not None:
             self.data['int_slopes_mva'] = self.data.int_slopes\
                                           .rolling(x=self.window).mean()
@@ -122,6 +126,7 @@ class PixelInterpolator(object):
                 ax.axhline(cutoff, 
                            color='red', label=f"Filter cutoff at {cutoff}")
             ax.set_ylabel(r'Normalised signal $D(x)$')
+            plt.grid()
             plt.legend()
             plt.show()
 
@@ -412,23 +417,6 @@ def get_reflectivity_variable(measurement, solar_positions, mounttree_file_path)
     np.pi/(solar_flux_resampled*np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
     
     return reflectivity
-
-
-def add_reflectivity_variable(measurement, nas_file, mounttree_file_path):
-    """Adds an additional variable to calibrated SWIR or VNIR data, based on a nas file containing halo data and the radiance 
-    measurements.
-    NOT MAINTAINED. DOES NOT CONSIDER EARTH-SUN DISTANCE"""
-    
-    solar_positions = get_solar_positions(nas_file, mounttree_file_path)
-    solar_positions_resampled = solar_positions.interp(time=measurement.time.values)
-        
-    solar_flux = load_solar_flux_kurudz()
-    solar_flux_resampled = solar_flux.interp(wavelength=measurement.wavelength.values)
-    
-    measurement["reflectivity"] = measurement["radiance"]*np.pi/(solar_flux_resampled* \
-                                                                np.cos(2.*np.pi*solar_positions_resampled.sza/360.))
-    
-    return
 
 
 def load_solar_flux_kurudz():

@@ -55,7 +55,7 @@ def get_pol_ic_stokes_params(args):
     #input_file_template_path = INPUT_FILES_DIR+'/pol_ic_input_file_template.txt'
                            
     write_input_file_from_RAM(input_file_template, generated_input_file_path, 
-                     input_file_args)
+                              input_file_args)
     
     uvspec_result = get_formatted_mystic_output(generated_input_file_path,
                                                 temp_dir_path) 
@@ -94,8 +94,8 @@ def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_arra
     cloud_index_vector = [(line[0], line[1]) for line in cloud_index_array]
         
     # Looping over entries in data array
-    
-    ntasks = len(ic_habit_array)*len(sza_array)*len(umu_array)*len(phi_array)*len(r_eff_array)
+    ntasks = (len(ic_habit_array)*len(sza_array)*len(umu_array)
+              *len(phi_array)*len(r_eff_array))
     print('Total calls to compute: ', ntasks)
     current_call = 1
     for ihabit in range(len(ic_habit_array)):
