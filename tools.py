@@ -88,7 +88,8 @@ class PixelInterpolator(object):
     functionality. Since A(C)³ scenes are typically dark with low sun angle,
     some pixels are unreliable, even though they might work for a different 
     scene. You can choose to interpolate invalid pixels, according to the 
-    'valid' variable, or dynamically find unreliable pixel rows."""
+    'valid' variable, or dynamically find unreliable pixel rows. data should
+    contain a 'radiance' variable."""
 
     def __init__(self, data, window=None):
         self.data = data
