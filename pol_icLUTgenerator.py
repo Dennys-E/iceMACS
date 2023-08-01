@@ -67,7 +67,8 @@ def get_pol_ic_stokes_params(args):
     return uvspec_result
 
 
-def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, sza_array, 
+def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, 
+                    umu_array, sza_array, 
                     r_eff_array, tau550_array, ic_habit_array, phi0=0, 
                     cloud_top_distance=1, ic_properties="baum_v36", 
                     surface_roughness="severe", CPUs=8, description=""):

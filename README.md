@@ -14,6 +14,18 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 * Find better way to organize paths
 * Try to replace \ line continuation with brackets
 
+## Structure
+The submodules in the `iceMACS` package are organized as follows:
+
+* The `paths` submodule defines global paths specific to you system. Adapt before usage.
+* `conveniences` contains functions that are non-essential to the retrieval but
+are compatible with other functions and sometimes called by the `tools` 
+submodule.
+* `tools` contains functions to interpret camera data and add new variables, 
+such as reflectivities, ice index and relative view angles. The updated `PixelInterpolator` class is defined here.
+* Rest to be determined...
+
+
 ## Usage
 
 ### SWIR bad pixel interpolation
