@@ -8,7 +8,7 @@ import itertools as it
 from multiprocessing import Pool
 from .simulation_tools import write_cloud_file, write_input_file, \
 get_formatted_uvspec_output, write_wavelength_grid_file, get_index_combinations
-from .tools import save_as_netcdf
+from .conveniences import save_as_netcdf
 from .paths import *
 
 

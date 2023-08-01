@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr 
 from .conveniences import load_solar_flux_kurudz
+from .paths import LIBRADTRAN_PATH
 
 
 class PixelInterpolator(object):
@@ -83,6 +84,22 @@ class PixelInterpolator(object):
         self.apply_filter()
         return self.data.radiance
     
+    
+def load_solar_flux_kurudz():
+    """Loads the .dat file from the libradtran directory specified in .paths.py
+    and formats it as an xarray dataarray to make compatible with other 
+    datasets, such as solar positions and camera data."""
+    solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
+
+    solar_flux = xr.DataArray(data=solar_flux[:,1], dims=["wavelength"], 
+                                        coords=dict(wavelength = solar_flux[:,0],), 
+                                        attrs=dict(measurement="Solar flux as in Kurudz", 
+                                        units="mW m**-2 nm**-1",))
+
+    solar_flux.wavelength.attrs["units"] = r'nm'
+    
+    return solar_flux
+    
 
 class SceneInterpreter(object):
     """Takes camera at different wavelengths, as well as view angles and solar
@@ -96,14 +113,16 @@ class SceneInterpreter(object):
                             .interp(time=self.camera_data.time.values))
         self.solar_positions = (solar_positions.copy()
                                 .interp(time=self.camera_data.time.values))
+        
+    def get_umu_variable(self):
+        # As to be passed to uvspec
+        umu = np.cos(2.*np.pi*self.view_angles.vza/360.)
+        return umu.rename('umu')
 
     def get_phi_variable(self):
         # Relative solar azimuth as to be passed to uvspec
-        return (self.view_angles.vaa - self.solar_positions.saa.mean())%360
-
-    def get_umu_variable(self):
-        # As to be passed to uvspec
-        return np.cos(2.*np.pi*self.view_angles.vza/360.)
+        phi = (self.view_angles.vaa - self.solar_positions.saa.mean())%360
+        return phi.rename('phi')
     
     def get_reflectivity_variable(self):
         """Returns an additional variable to calibrated SWIR or VNIR data, 
@@ -113,7 +132,7 @@ class SceneInterpreter(object):
         
         print("Load solar flux...")
         solar_flux = (load_solar_flux_kurudz()
-                      .interp(wavelength=measurement.wavelength.values))
+                      .interp(wavelength=self.camera_data.wavelength.values))
         
         print("Compute reflectivities...")
         reflectivity = self.camera_data["radiance"]*(self.solar_positions.d**2)*\
@@ -122,7 +141,47 @@ class SceneInterpreter(object):
         return reflectivity
     
     def get_scene_overview(self):
-        return
+        umu = self.get_umu_variable()
+        phi = self.get_phi_variable()
+
+        sza_mean = self.solar_positions.sza.mean().values
+        saa_mean = self.solar_positions.saa.mean().values
+
+        fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(14,10), sharex=True)
+
+        umu.plot(ax=ax[0,0], x='time')
+        umu.plot.contour(ax=ax[0,0], x='time', cmap='coolwarm')
+        phi.plot(ax=ax[0,1], x='time')
+        phi.plot.contour(ax=ax[0,1], x='time', cmap='coolwarm')
+        
+        self.solar_positions.sza.plot(ax=ax[1,0])
+        ax[1,0].axhline(sza_mean, color='red', linestyle='dotted', 
+                      label=f"Mean solar zenith angle = {sza_mean}")
+        ax[1,0].legend()
+        self.solar_positions.saa.plot(ax=ax[1,1])
+        ax[1,1].axhline(saa_mean, color='red', linestyle='dotted', 
+                      label=f"Mean solar azimuth angle = {saa_mean}")
+        ax[1,1].legend()
+        plt.tight_layout()
+        plt.show()
+
+        umu_min, umu_max = umu.min().values, umu.max().values
+        phi_min, phi_max = phi.min().values, phi.max().values
+
+        fig, ax = plt.subplots(ncols=2, figsize=(14,5))
+
+        umu.plot.hist(bins=150, ax=ax[0], 
+                      label=f"umu PDF with min={umu_min:.2f} and max={umu_max:.2f}", 
+                      density=True)
+        ax[0].legend()
+        phi.plot.hist(bins=150, ax=ax[1], 
+                      label=f"phi PDF with min={phi_min:.2f} and max={phi_max:.2f}", 
+                      density=True)
+        ax[1].legend()
+        plt.tight_layout()
+        plt.show()
+
+        return sza_mean, saa_mean, umu_min, umu_max, phi_min, phi_max
 
     
     def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
