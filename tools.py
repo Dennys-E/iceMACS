@@ -135,8 +135,11 @@ class SceneInterpreter(object):
                       .interp(wavelength=self.camera_data.wavelength.values))
         
         print("Compute reflectivities...")
-        reflectivity = self.camera_data["radiance"]*(self.solar_positions.d**2)*\
-        np.pi/(solar_flux*np.cos(2.*np.pi*self.solar_positions.sza/360.))
+        reflectivity = (self.camera_data["radiance"]
+                        *(self.solar_positions.d**2)
+                        *np.pi
+                        /(solar_flux*np.cos(2.*np.pi
+                                            *self.solar_positions.sza/360.)))
         
         return reflectivity
     
@@ -201,4 +204,54 @@ class SceneInterpreter(object):
         
         return I_s.rename('ice_index')
 
+
+class polLutInterpreter(object):
+    """Takes mystic out Stokes parameters and standard deviations in xarray 
+    dataset and provides calibration with srfs."""
+
+    def __init__(self, polLUT):
+        self.data = polLUT.copy()
+        self.calibrated = False
+
+    def calibrate(self, calibration_file, color='red'):
+
+        self.srfs = (calibration_file.srfs.interp(wvl=self.data.wvl)
+                     .sel(color=color).mean(dim='angle'))
+        self.normalized_srfs = self.srfs/self.srfs.sum(dim='wvl'
+                                                       )
+        self.scaled_data = self.data * self.normalized_srfs
+
+        self.calibrated_data = self.scaled_data.sum(dim='wvl')
+        self.calibrated = True
+
+        return 
+    
+    def get_polarized_reflectivity(self, calibrated=False):
+
+        if calibrated and not self.calibrated:
+            raise Exception("Please calibrate data and try again")
+
+        print("Load solar flux...")
+        solar_flux = (load_solar_flux_kurudz().rename({'wavelength':'wvl'})
+                      .interp(wvl=self.data.wvl.values))
+        
+        if calibrated: 
+            data = self.calibrated_data
+
+            scaled_solar_flux = solar_flux * self.normalized_srfs
+            solar_flux = scaled_solar_flux.sum(dim='wvl')
+
+        if not calibrated:
+            data = self.data
+
+        print(data)
+        
+        reflectivity = (np.pi * np.sqrt(data.Q**2 + data.U**2)
+                        /(solar_flux 
+                          *np.cos(2.*np.pi*data.sza/360.)))
+        
+        return reflectivity
+    
+
+        
 

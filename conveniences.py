@@ -12,7 +12,7 @@ import macsproc
 import macstrace
 from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
-from .paths import LIBRADTRAN_PATH, MOUNTTREE_FILE_PATH
+from .paths import MOUNTTREE_FILE_PATH
 
 
 def save_as_netcdf(xr_data, fpath):
@@ -40,7 +40,7 @@ def load_AC3_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
 
     Camera files with variables:
     'radiance', 'alt', 'act', 'valid'
-    
+
     All unnecessary variables in camera files are excluded. 
     Your can exclude each by setting the kwarg False."""
     
@@ -111,22 +111,6 @@ def load_AC3_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
     return nas_scene, swir_scene, vnir_scene
 
 
-def load_solar_flux_kurudz():
-    """Loads the .dat file from the libradtran directory specified in .paths.py
-    and formats it as an xarray dataarray to make compatible with other 
-    datasets, such as solar positions and camera data."""
-    solar_flux = np.genfromtxt(LIBRADTRAN_PATH+"/data/solar_flux/kurudz_0.1nm.dat")
-
-    solar_flux = xr.DataArray(data=solar_flux[:,1], dims=["wavelength"], 
-                                        coords=dict(wavelength = solar_flux[:,0],), 
-                                        attrs=dict(measurement="Solar flux as in Kurudz", 
-                                        units="mW m**-2 nm**-1",))
-
-    solar_flux.wavelength.attrs["units"] = r'nm'
-    
-    return solar_flux
-
-
 def get_solar_positions(nas_file, mounttree_file_path=MOUNTTREE_FILE_PATH):
     """Returns all relevant information about Sun-Earth distance and solar 
     position in order to compute cloud reflectivity information and get
@@ -176,3 +160,12 @@ def format_corrected_data(vnir_scene, swir_scene, swir_corrected):
     measurements = measurements.interp(x = x)
 
     return measurements
+
+"""
+class BSRLookupTable(object):
+
+    def __init__(self, LUT):
+        self.LUT = LUT.copy()
+        self.
+
+    def """

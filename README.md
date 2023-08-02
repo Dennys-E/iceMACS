@@ -53,8 +53,50 @@ filtered_radiance = interp.get_filtered_radiance(with_bpl=True)
 
 where also interpolating pixels from bad pixel list is the default. 
 
+### Data formatting
+The `SceneInterpreter` class takes calibrated loaded SWIR and VNIR datasets, as view angles and solar position datasets and fascilitates computation of variables that need to be passed to the `LUTGenerator` functions. Initiate with
+
+```python
+from iceMACS.tools import SceneInterpreter
+scene = SceneInterpreter(swir_scene, view_angles, solar_positions)
+```
+
+and get summarized scene geometry with 
+``` python
+scene.get_scene_overview()
+```
+
+Add relative view angles and reflectivity variable with
+
+```python
+swir_scene['reflectivity'] = scene.get_reflectivity_variable()
+swir_scene['umu'] = scene.get_umu_variable()
+swir_scene['phi'] = scene.get_phi_variable()
+```
+
 ### Bispectral retrieval (BSR)
 
 ### Habit detection
+
+Mystic simulations at wavelengths sampling the pol camera spectral response function have to be "calibrated" in order to reporoduce the actual measured signal. The `polLutInterpolator` class provides functions to get simulated reflectivities representing polA/B signals. Initiate with LUT as xarray dataset
+
+```python
+from iceMACS.tools import polLutInterpreter
+interp = polLutInterpreter(polLUT)
+```
+
+and calibrate with 
+
+```python
+interp.calibrate(inflight_calibration_file)
+```
+
+You can check if the `interp` object is calibrated with `interp.calibrated`. The normalised spectral response, rescaled Stokes parameters and calibrated radiance are also available as object properties. Compute calibrated reflectivities, relative to kurudz E<sub>0</sub>, with
+
+```python
+interp.get_polarized_reflectivity(calibrated=True)
+```
+
+with `False` being default.
 
 ### Additional functionalities
