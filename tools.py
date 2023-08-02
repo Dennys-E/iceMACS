@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr 
-from .conveniences import load_solar_flux_kurudz
 from .paths import LIBRADTRAN_PATH
 
 
@@ -186,7 +185,6 @@ class SceneInterpreter(object):
 
         return sza_mean, saa_mean, umu_min, umu_max, phi_min, phi_max
 
-    
     def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
         """Returns spectral ice index following the equation 
         by Ehrlich et al. 2008
@@ -214,11 +212,10 @@ class polLutInterpreter(object):
         self.calibrated = False
 
     def calibrate(self, calibration_file, color='red'):
-
+        # Calibrated refres to simulating pol camera signal
         self.srfs = (calibration_file.srfs.interp(wvl=self.data.wvl)
                      .sel(color=color).mean(dim='angle'))
-        self.normalized_srfs = self.srfs/self.srfs.sum(dim='wvl'
-                                                       )
+        self.normalized_srfs = self.srfs/self.srfs.sum(dim='wvl')
         self.scaled_data = self.data * self.normalized_srfs
 
         self.calibrated_data = self.scaled_data.sum(dim='wvl')
@@ -227,25 +224,24 @@ class polLutInterpreter(object):
         return 
     
     def get_polarized_reflectivity(self, calibrated=False):
-
+        # calibrated=False gives refl. per wavelength
         if calibrated and not self.calibrated:
-            raise Exception("Please calibrate data and try again")
+            raise Exception("Calibrate data and try again")
 
-        print("Load solar flux...")
         solar_flux = (load_solar_flux_kurudz().rename({'wavelength':'wvl'})
                       .interp(wvl=self.data.wvl.values))
         
         if calibrated: 
             data = self.calibrated_data
-
+            # Scale and integrate solar flux, similar to Stokes params, before
+            # computing reflectivity
             scaled_solar_flux = solar_flux * self.normalized_srfs
             solar_flux = scaled_solar_flux.sum(dim='wvl')
 
         if not calibrated:
             data = self.data
-
-        print(data)
         
+        # If calibrated, does not depend on wavelength anymore
         reflectivity = (np.pi * np.sqrt(data.Q**2 + data.U**2)
                         /(solar_flux 
                           *np.cos(2.*np.pi*data.sza/360.)))

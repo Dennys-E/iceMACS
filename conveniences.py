@@ -12,6 +12,9 @@ import macsproc
 import macstrace
 from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
+import cartopy.crs as ccrs
+import cartopy
+import matplotlib as plt
 from .paths import MOUNTTREE_FILE_PATH
 
 
@@ -109,6 +112,58 @@ def load_AC3_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
         vnir_scene = None
         
     return nas_scene, swir_scene, vnir_scene
+
+
+def map_AC3_scene(start_time, end_time):
+    
+    day = start_time.strftime("%Y%m%d")
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    if day != end_time.strftime("%Y%m%d"):
+        print("Error: Start and end time have to be on the same day!")
+
+    print("Load bahamas data...")
+    source_folder='/archive/meteo/ac3/'+day+'/'
+    nas_day_path = source_folder+"nas/AC3_HALO_BAHAMAS-SPECMACS-100Hz-final_"+day+"a.nc"
+    nas_day = read_LUT(nas_day_path)
+    nas_scene = nas_day.sel(time=slice(*interval))
+    
+    nas_scene = nas_day.sel(time=slice(*interval))
+
+    day_trajectory = nas_day.lon.values, nas_day.lat.values
+    scene_trajectory = nas_scene.lon.values, nas_scene.lat.values
+
+    fig, ax = plt.subplots(nrows=1,ncols=1,
+                            subplot_kw={'projection': ccrs.PlateCarree()},
+                            figsize=(16,6))
+
+    # Remove frame 
+    plt.tick_params(axis='x', which='both', bottom=False,
+                    top=False, labelbottom=False)
+    plt.tick_params(axis='y', which='both', right=False,
+                    left=False, labelleft=False)
+    for pos in ['right', 'top', 'bottom', 'left']:
+        plt.gca().spines[pos].set_visible(False)
+
+    #for ax in axes:
+
+    ax.add_feature(cartopy.feature.LAND)
+    ax.add_feature(cartopy.feature.OCEAN, alpha=0.4)
+    ax.add_feature(cartopy.feature.COASTLINE,linewidth=0.6)
+    ax.add_feature(cartopy.feature.BORDERS, linestyle=':',linewidth=0.3)
+    ax.add_feature(cartopy.feature.LAKES, alpha=0.5)
+    ax.add_feature(cartopy.feature.RIVERS)
+
+    ax.plot(*day_trajectory,
+             color='tab:orange', linestyle='--', linewidth=0.6,
+             transform=ccrs.PlateCarree())
+
+    ax.plot(*scene_trajectory,
+            color='red', linewidth=2.5,
+            transform=ccrs.PlateCarree())
+ 
+    return 
 
 
 def get_solar_positions(nas_file, mounttree_file_path=MOUNTTREE_FILE_PATH):

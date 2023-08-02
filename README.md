@@ -21,7 +21,7 @@ The submodules in the `iceMACS` package are organized as follows:
 * The `paths` submodule defines global paths specific to you system. Adapt before usage.
 * `conveniences` contains functions that are non-essential to the retrieval but
 are compatible with other functions and sometimes called by the `tools` 
-submodule.
+submodule. For example, loading data from the A(C)³ archive directory, plotting, reading and writing NetCDF files etc.
 * `tools` contains functions to interpret camera data and add new variables, 
 such as reflectivities, ice index and relative view angles. The updated `PixelInterpolator` class is defined here.
 * Rest to be determined...
@@ -91,7 +91,7 @@ and calibrate with
 interp.calibrate(inflight_calibration_file)
 ```
 
-You can check if the `interp` object is calibrated with `interp.calibrated`. The normalised spectral response, rescaled Stokes parameters and calibrated radiance are also available as object properties. Compute calibrated reflectivities, relative to kurudz E<sub>0</sub>, with
+You can check if the `interp` object is calibrated with `interp.calibrated`. The normalised spectral response, rescaled Stokes parameters and calibrated radiance are also available as object properties. Compute calibrated reflectivities, relative to Kurudz E<sub>0</sub>, with
 
 ```python
 interp.get_polarized_reflectivity(calibrated=True)
