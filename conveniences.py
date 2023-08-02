@@ -216,11 +216,17 @@ def format_corrected_data(vnir_scene, swir_scene, swir_corrected):
 
     return measurements
 
-"""
+
 class BSRLookupTable(object):
 
     def __init__(self, LUT):
         self.LUT = LUT.copy()
-        self.
 
-    def """
+    def display(self):
+        return
+    
+    def get_relevant_range(self):
+        return
+    
+    def get_inverted_LUT(self):
+        return #powered by Luti

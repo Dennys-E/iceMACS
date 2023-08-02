@@ -201,6 +201,16 @@ class SceneInterpreter(object):
         *(100./wvl_diff)
         
         return I_s.rename('ice_index')
+    
+    def get_cloud_properties_from_BSR(self, invertedLUT, wvl1, wvl2):
+        # Bispectral retrieval function 
+
+        umu = self.get_umu_variable()
+        phi = self.get_phi_variable()
+
+        #umu_counts, umu_bin_edges = np.histogram()
+        # Continue to copy from fast_retrieve()
+        return
 
 
 class polLutInterpreter(object):

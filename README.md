@@ -15,6 +15,9 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 * Try to replace \ line continuation with brackets
 * Add documentation for SceneInterpreter
 
+- [Structure](#-structure)
+- [Usage](#-usage)
+
 ## Structure
 The submodules in the `iceMACS` package are organized as follows:
 
