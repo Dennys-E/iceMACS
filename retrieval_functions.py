@@ -70,9 +70,7 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
                 current_result = (result.drop_vars(['phi', 'umu', 'reflectivity', 
                                                     'input_params']))
                     
-            last_result = xr.merge([last_result, current_result])
-
-
+                last_result = xr.merge([last_result, current_result])
 
     return last_result
 

@@ -242,31 +242,12 @@ class SceneInterpreter(object):
         """Takes an inverted LUT, i.e. with r_eff and tau550 variables, and 
         resamples according to SWIR pixels of approximate equal geometry. 
         Returns r_eff, tau550 as tuple."""
-        
+                            # From retrieval_functions.py
         cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
                                          wvl1, wvl2, R1_name, R2_name,
                                          umu_bins=umu_bins, phi_bins=phi_bins)
         return cloud_properties
-    
-    
-    def cloud_properties_BSR(self, invertedLUT, wvl1, wvl2, R1_name, R2_name,
-                             where_cloud=False):
         
-        merged_data = self.merged_data()
-
-        merged_data['r_eff'] = merged_data['umu']*np.nan
-
-        for time in tqdm(merged_data.time.values):
-            for x in merged_data.x.values:
-                
-                merged_data_cut = merged_data.sel(time=time, x=x)
-                merged_data.r_eff.loc[dict(time=time, x=x)] = 2
-
-        return merged_data.r_eff
-        
-
-
-
 
 class polLutInterpreter(object):
     """Takes mystic out Stokes parameters and standard deviations in xarray 

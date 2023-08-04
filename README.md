@@ -52,7 +52,13 @@ interp.add_cutoffs([4, 1.2])
 Adjust cutoff as needed and apply filter with 
 
 ```python
-filtered_radiance = interp.get_filtered_radiance(with_bpl=True)
+filtered_radiance = interp.filtered_radiance(with_bpl=True)
+```
+
+or
+
+```python
+filtered_radiance = interp.interpolated_radiance(with_bpl=True)
 ```
 
 where also interpolating pixels from bad pixel list is the default. 
@@ -67,15 +73,21 @@ scene = SceneInterpreter(swir_scene, view_angles, solar_positions)
 
 and get summarized scene geometry with 
 ``` python
-scene.get_scene_overview()
+scene.overview()
 ```
 
 Add relative view angles and reflectivity variable with
 
 ```python
-swir_scene['reflectivity'] = scene.get_reflectivity_variable()
-swir_scene['umu'] = scene.get_umu_variable()
-swir_scene['phi'] = scene.get_phi_variable()
+swir_scene['reflectivity'] = scene.reflectivity()
+swir_scene['umu'] = scene.umu()
+swir_scene['phi'] = scene.phi()
+```
+
+or get summarized scene information with 
+
+```python
+scene.merged_data()
 ```
 
 ### Bispectral retrieval (BSR)
