@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr 
+from tqdm import tqdm
 from .paths import LIBRADTRAN_PATH
+from .retrieval_functions import fast_retrieve
 
 
 class PixelInterpolator(object):
@@ -48,6 +50,8 @@ class PixelInterpolator(object):
             plt.show()
 
     def add_cutoffs(self, cutoffs):
+        # Add cutoffs as list necessary before filtering. show_signals() again 
+        # to adapt values
         if len(cutoffs) != len(self.data.wavelength):
             raise Exception("""Number of passed cutoffs does not equal 
                             number of wavelengths in data""")
@@ -57,34 +61,44 @@ class PixelInterpolator(object):
                                          .wavelength.values})
         self.data = self.data.assign(cutoff=cutoff_da)
 
-    def apply_bpl(self):
-        self.data['radiance'] = self.data.radiance.\
-                                where(self.data.valid==1).\
-                                interpolate_na(dim='x', method='spline', 
-                                               use_coordinate=False)
+    def interpolated_radiance(self, with_bpl=True):
+        # Interpolated over nan values and invalid pixels per default. Does not
+        # apply filter
+        if with_bpl:
+            interpolated_radiance = (self.data.radiance
+                                     .where(self.data.valid==1)
+                                     .interpolate_na(dim='x', method='spline', 
+                                                     use_coordinate=False))
+        else: 
+            interpolated_radiance = (self.data.radiance
+                                    .interpolate_na(dim='x', method='spline', 
+                                                     use_coordinate=False))
         self.interpolated_from_list = True
 
-    def apply_filter(self):
+        return interpolated_radiance
+
+    def filtered_radiance(self, with_bpl=True):
+        # Applies filter and interpolates all nan values
         if self.cutoffs is None:
             raise Exception("""Enter cutoff list with 'add_cutoffs()'
                             before applying filter""")
         
-        selection = self.data.radiance\
-                    .where(self.data.int_slopes_mva<self.data.cutoff)
+        if with_bpl:
+            selection = (self.data.radiance
+                        .where(self.data.valid==1)
+                        .where(self.data.int_slopes_mva<self.data.cutoff))
+        else: 
+            selection = (self.data.radiance
+                        .where(self.data.int_slopes_mva<self.data.cutoff))
         
-        interpolated_radiance = selection.interpolate_na(dim='x', 
-                                                         method='spline', 
-                                                         use_coordinate=False)
-        self.data['radiance'] = interpolated_radiance
+        filtered_radiance = selection.interpolate_na(dim='x', method='spline', 
+                                                     use_coordinate=False)
         self.applied_filter = True
 
-    def get_filtered_radiance(self, with_bpl=True):
-        self.apply_bpl()
-        self.apply_filter()
-        return self.data.radiance
+        return filtered_radiance
+ 
     
-    
-def load_solar_flux_kurudz():
+def solar_flux_kurudz():
     """Loads the .dat file from the libradtran directory specified in .paths.py
     and formats it as an xarray dataarray to make compatible with other 
     datasets, such as solar positions and camera data."""
@@ -109,42 +123,41 @@ class SceneInterpreter(object):
     def __init__(self, camera_data, view_angles, solar_positions):
         self.camera_data = camera_data.copy()
         self.view_angles = (view_angles.copy()
-                            .interp(time=self.camera_data.time.values))
+                            .interp(time=self.camera_data.time)
+                            .interp(x=self.camera_data.x))
         self.solar_positions = (solar_positions.copy()
-                                .interp(time=self.camera_data.time.values))
+                                .interp(time=self.camera_data.time))
         
-    def get_umu_variable(self):
+    def umu(self):
         # As to be passed to uvspec
         umu = np.cos(2.*np.pi*self.view_angles.vza/360.)
         return umu.rename('umu')
 
-    def get_phi_variable(self):
+    def phi(self):
         # Relative solar azimuth as to be passed to uvspec
         phi = (self.view_angles.vaa - self.solar_positions.saa.mean())%360
         return phi.rename('phi')
     
-    def get_reflectivity_variable(self):
+    def reflectivity(self):
         """Returns an additional variable to calibrated SWIR or VNIR data, 
         based on a nas file containing halo data and the radiance measurements, 
         that can be merged with the other datsets. Now also considers Earth-Sun 
         distance."""
         
-        print("Load solar flux...")
-        solar_flux = (load_solar_flux_kurudz()
+        solar_flux = (solar_flux_kurudz()
                       .interp(wavelength=self.camera_data.wavelength.values))
         
-        print("Compute reflectivities...")
         reflectivity = (self.camera_data["radiance"]
                         *(self.solar_positions.d**2)
                         *np.pi
                         /(solar_flux*np.cos(2.*np.pi
                                             *self.solar_positions.sza/360.)))
         
-        return reflectivity
+        return reflectivity.rename('reflectivity')
     
-    def get_scene_overview(self):
-        umu = self.get_umu_variable()
-        phi = self.get_phi_variable()
+    def overview(self):
+        umu = self.umu()
+        phi = self.umu()
 
         sza_mean = self.solar_positions.sza.mean().values
         saa_mean = self.solar_positions.saa.mean().values
@@ -184,8 +197,12 @@ class SceneInterpreter(object):
         plt.show()
 
         return sza_mean, saa_mean, umu_min, umu_max, phi_min, phi_max
+    
+    def cloud_pixels(self, wavelenth=1550, threshold=3.):
 
-    def get_ice_index(measurement, center_wvl, wvl_lower, wvl_upper):
+        return
+
+    def ice_index_Ehrlich2008(measurement, center_wvl, wvl_lower, wvl_upper):
         """Returns spectral ice index following the equation 
         by Ehrlich et al. 2008
         EXPERIMENTAL"""
@@ -202,15 +219,53 @@ class SceneInterpreter(object):
         
         return I_s.rename('ice_index')
     
-    def get_cloud_properties_from_BSR(self, invertedLUT, wvl1, wvl2):
-        # Bispectral retrieval function 
+    def ice_index_Jaekel2013(self):
 
-        umu = self.get_umu_variable()
-        phi = self.get_phi_variable()
-
-        #umu_counts, umu_bin_edges = np.histogram()
-        # Continue to copy from fast_retrieve()
         return
+    
+    def ice_index_Thompson2016(self):
+
+        return 
+    
+    def merged_data(self):
+
+        merged_data = xr.merge([self.camera_data, self.umu(), self.phi(),
+                                self.reflectivity(),
+                                self.solar_positions, self.view_angles])
+        
+        return merged_data
+    
+    def cloud_properties_fast_BSR(self, invertedLUT, wvl1, wvl2, R1_name, R2_name,
+                                  where_cloud=False,
+                                  umu_bins=15,
+                                  phi_bins=40):
+        """Takes an inverted LUT, i.e. with r_eff and tau550 variables, and 
+        resamples according to SWIR pixels of approximate equal geometry. 
+        Returns r_eff, tau550 as tuple."""
+        
+        cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
+                                         wvl1, wvl2, R1_name, R2_name,
+                                         umu_bins=umu_bins, phi_bins=phi_bins)
+        return cloud_properties
+    
+    
+    def cloud_properties_BSR(self, invertedLUT, wvl1, wvl2, R1_name, R2_name,
+                             where_cloud=False):
+        
+        merged_data = self.merged_data()
+
+        merged_data['r_eff'] = merged_data['umu']*np.nan
+
+        for time in tqdm(merged_data.time.values):
+            for x in merged_data.x.values:
+                
+                merged_data_cut = merged_data.sel(time=time, x=x)
+                merged_data.r_eff.loc[dict(time=time, x=x)] = 2
+
+        return merged_data.r_eff
+        
+
+
 
 
 class polLutInterpreter(object):
@@ -233,12 +288,12 @@ class polLutInterpreter(object):
 
         return 
     
-    def get_polarized_reflectivity(self, calibrated=False):
+    def polarized_reflectivity(self, calibrated=False):
         # calibrated=False gives refl. per wavelength
         if calibrated and not self.calibrated:
             raise Exception("Calibrate data and try again")
 
-        solar_flux = (load_solar_flux_kurudz().rename({'wavelength':'wvl'})
+        solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
                       .interp(wvl=self.data.wvl.values))
         
         if calibrated: 

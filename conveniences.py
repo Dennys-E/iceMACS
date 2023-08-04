@@ -14,7 +14,7 @@ from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
 import cartopy.crs as ccrs
 import cartopy
-import matplotlib as plt
+import matplotlib.pyplot as plt
 from .paths import MOUNTTREE_FILE_PATH
 
 

@@ -9,8 +9,10 @@ from multiprocessing import Pool
 from luti import Alphachecker
 from luti.xarray import invert_data_array
 from .conveniences import read_LUT
+import matplotlib.pyplot as plt
 
-def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
+def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name, 
+                  umu_bins=10, phi_bins=10):
     
     umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy()\
                                              .flatten(), 
@@ -19,10 +21,13 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
                                              .flatten(), 
                                              bins=phi_bins)
     
+    print(umu_bin_edges)
+    
     inverted = inverted.sel(sza=merged_data.sza.mean(), method='nearest')
     
     print('Start loop...')
-    list = []
+    last_result = None 
+
     for i_phi_bin in tqdm(range(len(phi_bin_edges)-1)):
         
         phi_mean = (phi_bin_edges[i_phi_bin+1]+phi_bin_edges[i_phi_bin])/2.
@@ -30,38 +35,46 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, umu_bins=5, phi_bins=10):
         for i_umu_bin in range(len(umu_bin_edges)-1):
             
             umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
-            
-            #print(phi_mean, umu_mean)
-            
+            #umu_mean = umu_bin_edges[i_umu_bin+1]
+
             data_cut = merged_data.reflectivity\
             .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
             .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
             .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
                   how='all')
-           
-            if data_cut.x.size != 0:
-                #print('Interpolate LUT...')
-                LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
-                                   method='nearest')
 
-                result = LUT.interp(Rone=data_cut.sel(wavelength=wvl1, 
-                                                       method='nearest'), 
-                                    Rtwo=data_cut.sel(wavelength=wvl2, 
-                                                        method='nearest'))
+
+            if data_cut.x.size == 0:
+                continue
+
+            LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
+                               method='nearest').rename({R1_name:'Rone',
+                                                         R2_name:'Rtwo'})
+
+            result = LUT.interp(Rone=data_cut.sel(wavelength=wvl1, 
+                                                  method='nearest'), 
+                                Rtwo=data_cut.sel(wavelength=wvl2, 
+                                                  method='nearest'))
                 
-                result['r_eff'] = (result.sel(input_params='r_eff')
-                                   .reflectivity)
-                result['tau550'] = result.sel(input_params='tau550')\
-                                         .reflectivity
+            result['r_eff'] = (result.sel(input_params='r_eff')
+                                     .reflectivity)
+            result['tau550'] = (result.sel(input_params='tau550')
+                                      .reflectivity)
 
-                list.append(result.drop_vars(['phi', 'umu', 
-                                              'reflectivity', 'input_params']))
+            if last_result is None:
+                last_result = (result.drop_vars(['phi', 'umu', 'reflectivity', 
+                                                 'input_params']))
                
-    print('Merge output...')
-    result = xr.merge(list)
-    print('Done!')
-    return result
+            else: 
+                current_result = (result.drop_vars(['phi', 'umu', 'reflectivity', 
+                                                    'input_params']))
+                    
+            last_result = xr.merge([last_result, current_result])
+
+
+
+    return last_result
 
 
 def retrieve_image(LUTpath, wvl1, wvl2, merged_data, habit):
