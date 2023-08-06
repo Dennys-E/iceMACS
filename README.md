@@ -15,6 +15,7 @@ Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS
 * Try to replace \ line continuation with brackets
 * Add documentation for SceneInterpreter
 * Update documentation for filter
+* Add type hints
 
 - [Structure](#-structure)
 - [Usage](#-usage)

@@ -1,9 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr 
-from tqdm import tqdm
-from .paths import LIBRADTRAN_PATH
+from timeit import default_timer as timer
+
+from luti.xarray import invert_data_array
+from luti import Alphachecker
+from luti import LinearInterpolator
+
 from .retrieval_functions import fast_retrieve
+from .conveniences import read_LUT
+from .paths import LIBRADTRAN_PATH
 
 
 class PixelInterpolator(object):
@@ -247,11 +253,106 @@ class SceneInterpreter(object):
                                          wvl1, wvl2, R1_name, R2_name,
                                          umu_bins=umu_bins, phi_bins=phi_bins)
         return cloud_properties
+    
+
+class BSRLookupTable(object):
+
+    def __init__(self, LUT):
+        if LUT.wvl.size != 2:
+            raise Exception("Please choose two wavelengths.")
+        self.dataset = LUT.copy()
+        self.wvl1 = self.dataset.isel(wvl=0).wvl.values.item()
+        self.wvl2 = self.dataset.isel(wvl=1).wvl.values.item()
+
+    @classmethod
+    def from_path(cls, path):
+        LUT = read_LUT(path)
+
+        return cls(LUT)
+
+    def display_nadir(self):
+        fig, ax = plt.subplots(figsize=(14,10))
+
+        LUTcut = self.dataset.isel(phi=0, umu=0, sza=0, ic_habit=0)
+
+        LUTcut1 = LUTcut.sel(wvl=self.wvl1)
+        LUTcut2 = LUTcut.sel(wvl=self.wvl2)
+
+        for r_eff in LUTcut.coords['r_eff'].values:
+            ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), 
+                    LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
+                    linewidth=1, label=np.round(r_eff, 2))
+
+        for itau550, tau550 in enumerate(LUTcut.coords['tau550'].values):
+            ax.plot(LUTcut1.isel(tau550=itau550).reflectivity.to_numpy(), 
+                    LUTcut2.isel(tau550=itau550).reflectivity.to_numpy(),
+                    "--", color="black",
+                    linewidth=0.7)
+            
+            x = np.max(LUTcut1.isel(tau550=itau550).reflectivity.to_numpy())
+            y = np.max(LUTcut2.isel(tau550=itau550).reflectivity.to_numpy())+0.03
+            eq = r"$\tau=$"
+            if tau550<=2:
+                plt.text(x,y, f"{eq}{tau550:.2f}", fontsize=11)
+                
+        wvl1 = LUTcut1.wvl.values
+        wvl2 = LUTcut2.wvl.values
+            
+        ax.set_xlabel(f"Reflectivity at {wvl1}nm")
+        ax.set_ylabel(f"Reflectivity at {wvl2}nm")
+        ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
+        plt.title("Nadir perspective")
+        plt.tight_layout()
+        plt.show()
+
+    def display(self):
+        return
+    
+    def reflectivity_range(self):
+        Rone_min = self.dataset.sel(wvl=self.wvl1).reflectivity.min().values.item()
+        Rone_max = self.dataset.sel(wvl=self.wvl1).reflectivity.max().values.item()
+
+        Rtwo_min = self.dataset.sel(wvl=self.wvl2).reflectivity.min().values.item()
+        Rtwo_max = self.dataset.sel(wvl=self.wvl2).reflectivity.max().values.item()
+
+        return Rone_min, Rone_max, Rtwo_min, Rtwo_max
+    
+
+    def inverted(self, name1=None, name2=None, num=200, alpha=4.0,
+                 interpolator=LinearInterpolator()):
+        # Powered by LUTI 
+        if name1 is None:
+            name1 = f"R({self.wvl1}nm)"
+        if name2 is None:
+            name2 = f"R({self.wvl2}nm)"
+
+        Rone_min, Rone_max, Rtwo_min, Rtwo_max = self.reflectivity_range()
+        Rone = np.linspace(Rone_min, Rone_max, num=num)
+        Rtwo = np.linspace(Rtwo_min, Rtwo_max, num=num)
+
+        self.dataset.coords['wvl'] = ('wvl', [name1, name2])
+
+        start_time = timer()
+        inverted = invert_data_array(self.dataset.reflectivity,
+                                     input_params=['r_eff', 'tau550'],
+                                     output_dim='wvl',
+                                     output_grid={name1:Rone, name2:Rtwo},
+                                     checker=Alphachecker(alpha=alpha),
+                                     interpolator=interpolator)
+        end_time = timer()
+        inversion_time = (end_time-start_time)/60. #[min]
+        self.dataset.coords['wvl'] = ('wvl', [self.wvl1, self.wvl2])
+        inverted.attrs = dict(inversion_time = f"{inversion_time} min")
+
+        return inverted
         
 
-class polLutInterpreter(object):
+class PolLookupTable(object):
     """Takes mystic out Stokes parameters and standard deviations in xarray 
-    dataset and provides calibration with srfs."""
+    dataset and provides calibration with srfs.
+    
+    TODO: Make sure use is easy. Define function, 
+    pol_cam_reflectivity(sself, calibration_file)"""
 
     def __init__(self, polLUT):
         self.data = polLUT.copy()

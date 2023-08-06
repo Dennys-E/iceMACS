@@ -2,41 +2,49 @@
 cloud optical porperties."""
 
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from tqdm import tqdm
 import xarray as xr
 import itertools as it
 from multiprocessing import Pool
+
 from luti import Alphachecker
 from luti.xarray import invert_data_array
 from .conveniences import read_LUT
-import matplotlib.pyplot as plt
+
 
 def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name, 
                   umu_bins=10, phi_bins=10):
+    """Retrieval function that selects pixels of similar viewing geometry and
+    passes to the closest fitting LUT in the inverted dataset. Function is 
+    called by the SceneInterpreter class in .tools."""
     
-    umu_counts, umu_bin_edges = np.histogram(merged_data.umu.to_numpy()\
-                                             .flatten(), 
-                                             bins=umu_bins)
-    phi_counts, phi_bin_edges = np.histogram(merged_data.phi.to_numpy()\
-                                             .flatten(), 
-                                             bins=phi_bins)
-    
-    print(umu_bin_edges)
+    umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
+                                 bins=umu_bins)[1]
+    phi_bin_edges = np.histogram(merged_data.phi.to_numpy().flatten(), 
+                                 bins=phi_bins)[1]
     
     inverted = inverted.sel(sza=merged_data.sza.mean(), method='nearest')
     
-    print('Start loop...')
-    last_result = None 
+    last_result = None # Identifies first execution. Intermediate results are
+                       # continuously merged to avoid memory issues
+    """
+    fig, ax = plt.subplots(figsize=(16,4), sharex=True)
+    n_it = (len(phi_bin_edges)-1)*(len(umu_bin_edges)-1)
+    color_counter = -1 """
 
     for i_phi_bin in tqdm(range(len(phi_bin_edges)-1)):
         
+        # choose bin center
         phi_mean = (phi_bin_edges[i_phi_bin+1]+phi_bin_edges[i_phi_bin])/2.
              
         for i_umu_bin in range(len(umu_bin_edges)-1):
+            #color_counter += 1.
             
+            # choose bin center
             umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
-            #umu_mean = umu_bin_edges[i_umu_bin+1]
-
+            # find parts of data in chosen geometry bins
             data_cut = merged_data.reflectivity\
             .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
@@ -44,14 +52,24 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
             .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
                   how='all')
 
-
             if data_cut.x.size == 0:
                 continue
+
+            """
+            try:
+                data_cut.isel(wavelength=0).plot.contourf(ax=ax, x='time', 
+                                                         levels=[0,0.5], 
+                                                         add_colorbar=False, 
+                                                         colors=f"C{int(color_counter%9)}",
+                                                         alpha=0.8)
+            except:
+                pass
+                """
 
             LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
                                method='nearest').rename({R1_name:'Rone',
                                                          R2_name:'Rtwo'})
-
+            # actual retrieval
             result = LUT.interp(Rone=data_cut.sel(wavelength=wvl1, 
                                                   method='nearest'), 
                                 Rtwo=data_cut.sel(wavelength=wvl2, 
@@ -74,6 +92,10 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
 
     return last_result
 
+
+"""The following functions are historic and impractical due to their high 
+run time. However, they to not need any approximations in terms of viewing 
+geometry, within accuracy of employed LUT."""
 
 def retrieve_image(LUTpath, wvl1, wvl2, merged_data, habit):
     

@@ -3,18 +3,20 @@ but make handling data files more convenient, such as reading and writing
 netCDF file, plotting data etc."""
 
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 import netCDF4 as nc
 import xarray as xr
 import datetime
 import glob
-import macsproc
-import macstrace
-from macstrace.Shapes import ZPlane
 import pvlib.solarposition as sp
 import cartopy.crs as ccrs
 import cartopy
-import matplotlib.pyplot as plt
+
+import macsproc
+import macstrace
+from macstrace.Shapes import ZPlane
+
 from .paths import MOUNTTREE_FILE_PATH
 
 
@@ -215,18 +217,3 @@ def format_corrected_data(vnir_scene, swir_scene, swir_corrected):
     measurements = measurements.interp(x = x)
 
     return measurements
-
-
-class BSRLookupTable(object):
-
-    def __init__(self, LUT):
-        self.LUT = LUT.copy()
-
-    def display(self):
-        return
-    
-    def get_relevant_range(self):
-        return
-    
-    def get_inverted_LUT(self):
-        return #powered by Luti
