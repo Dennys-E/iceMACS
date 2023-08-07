@@ -78,7 +78,7 @@ def save_plain_uvspec_output_under(input_file_path, output_file_path):
 def get_index_combinations(length):
     
     """Returns all relevant index combinations for two arrays (e.g. of cloud parameters) with the same length, while exluding 
-    redundant combinations."""
+    redundant combinations. Equivalent to meshgrid."""
     
     first_part = np.array(list(it.combinations_with_replacement(np.arange(length), 2)))
     second_part = np.flip(np.array(list(it.combinations(np.arange(length), 2))), axis=1)
@@ -111,6 +111,42 @@ def get_plain_uvspec_output(input_file_path, temp_path):
     return return_value
 
 
+def get_formatted_uvspec_output(input_file_path, nwvl, numu, nphi, temp_path):
+    
+    """Returns uvspec output as an array of the format (wvl, umu, phi) instead 
+    of 2D standard output. To ensure correct format of returned file, uvspec 
+    output is temporarily saved in specified directory. Currently method of 
+    choice.
+    """
+    
+    f = open(input_file_path, 'r')
+    input_file = f.read()
+    f.close()
+
+    result = subprocess.run([UVSPEC_PATH], input = input_file, 
+                            capture_output=True, encoding='ascii')
+
+    output_temp = result.stdout
+    
+    f = open(temp_path, 'w')
+    f.write(output_temp)
+    f.close()
+    
+    f = open(temp_path, 'r')
+    return_value = np.loadtxt(f)
+    f.close()
+    
+    result = np.zeros((nwvl, nphi, numu))
+    
+    for iwvl in range(nwvl):
+        for iumu in range(numu):
+            for iphi in range(nphi):
+                result[iwvl, iphi, iumu] = \
+                return_value[iwvl, iumu*nphi + iphi + 1] 
+    
+    return result
+
+
 def get_formatted_mystic_output(generated_input_file_path, temp_dir_path):
     """Returns Stokes vectors for each wavelengths, as returned by mystic.
     """
@@ -141,38 +177,3 @@ def get_formatted_mystic_output(generated_input_file_path, temp_dir_path):
     os.chdir(original_dir)
     
     return stokes_params, stokes_std
-
-
-def get_formatted_uvspec_output(input_file_path, nwvl, numu, nphi, temp_path):
-    
-    """Returns uvspec output as an array of the format (wvl, umu, phi) instead 
-    of 2D standard output. To ensure correct format of returned file, uvspec 
-    output is temporarily saved in specified directory.
-    """
-    
-    f = open(input_file_path, 'r')
-    input_file = f.read()
-    f.close()
-
-    result = subprocess.run([UVSPEC_PATH], input = input_file, 
-                            capture_output=True, encoding='ascii')
-
-    output_temp = result.stdout
-    
-    f = open(temp_path, 'w')
-    f.write(output_temp)
-    f.close()
-    
-    f = open(temp_path, 'r')
-    return_value = np.loadtxt(f)
-    f.close()
-    
-    result = np.zeros((nwvl, nphi, numu))
-    
-    for iwvl in range(nwvl):
-        for iumu in range(numu):
-            for iphi in range(nphi):
-                result[iwvl, iphi, iumu] = \
-                return_value[iwvl, iumu*nphi + iphi + 1] 
-    
-    return result

@@ -15,10 +15,13 @@ from .conveniences import read_LUT
 
 
 def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name, 
-                  umu_bins=10, phi_bins=10):
+                  umu_bins=10, phi_bins=10, interpolate=False):
     """Retrieval function that selects pixels of similar viewing geometry and
     passes to the closest fitting LUT in the inverted dataset. Function is 
-    called by the SceneInterpreter class in .tools."""
+    called by the SceneInterpreter class in .tools.
+    
+    Merged data needs to include: 'umu', 'phi', 'reflectivity'
+    """
     
     umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
                                  bins=umu_bins)[1]
@@ -50,7 +53,7 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
             .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
             .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
-                  how='all')
+                   how='all')
 
             if data_cut.x.size == 0:
                 continue
@@ -66,9 +69,19 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
                 pass
                 """
 
-            LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
-                               method='nearest').rename({R1_name:'Rone',
-                                                         R2_name:'Rtwo'})
+            #LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
+             #                  method='nearest').rename({R1_name:'Rone',
+              #                                           R2_name:'Rtwo'})
+            
+            if interpolate:
+                LUT = inverted.interp(phi=phi_mean, umu=umu_mean)
+
+            else: 
+                LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
+                                   method='nearest')
+
+            LUT = LUT.rename({R1_name:'Rone', R2_name:'Rtwo'})
+
             # actual retrieval
             result = LUT.interp(Rone=data_cut.sel(wavelength=wvl1, 
                                                   method='nearest'), 

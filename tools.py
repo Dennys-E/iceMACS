@@ -20,6 +20,8 @@ class PixelInterpolator(object):
     'valid' variable, or dynamically find unreliable pixel rows. data should
     contain a 'radiance' variable."""
 
+    # TODO: Add dimension to output, indicating what pixels were interpolated
+
     def __init__(self, swir_ds, window=None):
         self.data = swir_ds.copy()
         self.window = window
@@ -140,7 +142,10 @@ class SceneInterpreter(object):
         return umu.rename('umu')
 
     def phi(self):
-        # Relative solar azimuth as to be passed to uvspec
+        # Relative solar azimuth as to be passed to uvspec.
+        # saa and vaa relative to WGS84
+        # --> 180 deg corresponds to sun behind sensor
+        # --> 0 deg corresponds to sensor view towards sun
         phi = (self.view_angles.vaa - self.solar_positions.saa.mean())%360
         return phi.rename('phi')
     
@@ -162,43 +167,72 @@ class SceneInterpreter(object):
         return reflectivity.rename('reflectivity')
     
     def overview(self):
+        vza = self.view_angles.vza
+        vaa = self.view_angles.vaa
+
         umu = self.umu()
-        phi = self.umu()
+        phi = self.phi()
 
         sza_mean = self.solar_positions.sza.mean().values
         saa_mean = self.solar_positions.saa.mean().values
 
-        fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(14,10), sharex=True)
-
-        umu.plot(ax=ax[0,0], x='time')
-        umu.plot.contour(ax=ax[0,0], x='time', cmap='coolwarm')
-        phi.plot(ax=ax[0,1], x='time')
-        phi.plot.contour(ax=ax[0,1], x='time', cmap='coolwarm')
-        
-        self.solar_positions.sza.plot(ax=ax[1,0])
-        ax[1,0].axhline(sza_mean, color='red', linestyle='dotted', 
-                      label=f"Mean solar zenith angle = {sza_mean}")
-        ax[1,0].legend()
-        self.solar_positions.saa.plot(ax=ax[1,1])
-        ax[1,1].axhline(saa_mean, color='red', linestyle='dotted', 
-                      label=f"Mean solar azimuth angle = {saa_mean}")
-        ax[1,1].legend()
+        fig, ax = plt.subplots(ncols=2, figsize=(16,4), sharey=True)
+        vza.plot(ax=ax[0], x='time', alpha=0.8)
+        plt.clabel(vza.plot.contour(ax=ax[0], x='time', cmap='coolwarm_r', 
+                                    levels=10), 
+                   inline=True, fontsize=12)
+        ax[0].set_title("")
+        vaa.plot(ax=ax[1], x='time', alpha=0.8)
+        plt.clabel(vaa.plot.contour(ax=ax[1], x='time', cmap='coolwarm_r', 
+                                    levels=10), 
+                   inline=True, fontsize=12)
+        ax[1].set_title("")
+        ax[1].set_ylabel(None)
+        fig.suptitle("Absolute viewing angles")
         plt.tight_layout()
-        plt.show()
+
+        fig, ax = plt.subplots(ncols=2, figsize=(16,4), sharey=True)
+        umu.plot(ax=ax[0], x='time', alpha=0.8)
+        plt.clabel(umu.plot.contour(ax=ax[0], x='time', cmap='coolwarm_r', 
+                                    levels=10), 
+                   inline=True, fontsize=12)
+        ax[0].set_title("")
+        phi.plot(ax=ax[1], x='time', alpha=0.8)
+        plt.clabel(phi.plot.contour(ax=ax[1], x='time', cmap='coolwarm_r', 
+                                    levels=10), 
+                   inline=True, fontsize=12)
+        ax[1].set_title("")
+        ax[1].set_ylabel(None)
+        fig.suptitle("Relative viewing angles")
+        plt.tight_layout()
+        
+        fig, ax = plt.subplots(ncols=2, figsize=(16,4))
+        self.solar_positions.sza.plot(ax=ax[0])
+        ax[0].axhline(sza_mean, color='red', linestyle='dotted', 
+                      label=f"Mean solar zenith angle = {sza_mean}")
+        ax[0].legend()
+        self.solar_positions.saa.plot(ax=ax[1])
+        ax[1].axhline(saa_mean, color='red', linestyle='dotted', 
+                      label=f"Mean solar azimuth angle = {saa_mean}")
+        ax[1].legend()
+        fig.suptitle("Solar positions along track")
+        plt.tight_layout()
 
         umu_min, umu_max = umu.min().values, umu.max().values
         phi_min, phi_max = phi.min().values, phi.max().values
 
-        fig, ax = plt.subplots(ncols=2, figsize=(14,5))
-
+        fig, ax = plt.subplots(ncols=2, figsize=(16,4))
         umu.plot.hist(bins=150, ax=ax[0], 
                       label=f"umu PDF with min={umu_min:.2f} and max={umu_max:.2f}", 
                       density=True)
         ax[0].legend()
+        ax[0].set_title(None)
         phi.plot.hist(bins=150, ax=ax[1], 
                       label=f"phi PDF with min={phi_min:.2f} and max={phi_max:.2f}", 
                       density=True)
         ax[1].legend()
+        ax[1].set_title(None)
+        fig.suptitle("Realtive viewing angle relevenat ranges")
         plt.tight_layout()
         plt.show()
 
@@ -242,16 +276,22 @@ class SceneInterpreter(object):
         return merged_data
     
     def cloud_properties_fast_BSR(self, invertedLUT, wvl1, wvl2, R1_name, R2_name,
-                                  where_cloud=False,
-                                  umu_bins=15,
-                                  phi_bins=40):
+                                  umu_bins=None, phi_bins=None,
+                                  interpolated=False):
         """Takes an inverted LUT, i.e. with r_eff and tau550 variables, and 
         resamples according to SWIR pixels of approximate equal geometry. 
         Returns r_eff, tau550 as tuple."""
+
+        if umu_bins is None:
+            umu_bins = invertedLUT.umu.size()
+        if phi_bins is None:
+            phi_bins = invertedLUT.phi.size()
+
                             # From retrieval_functions.py
         cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
                                          wvl1, wvl2, R1_name, R2_name,
-                                         umu_bins=umu_bins, phi_bins=phi_bins)
+                                         umu_bins=umu_bins, phi_bins=phi_bins,
+                                         interpolated=interpolated)
         return cloud_properties
     
 
@@ -263,6 +303,8 @@ class BSRLookupTable(object):
         self.dataset = LUT.copy()
         self.wvl1 = self.dataset.isel(wvl=0).wvl.values.item()
         self.wvl2 = self.dataset.isel(wvl=1).wvl.values.item()
+        self.Rone_name = f"R({self.wvl1}nm)"
+        self.Rtwo_name = f"R({self.wvl2}nm)"
 
     @classmethod
     def from_path(cls, path):
@@ -322,9 +364,9 @@ class BSRLookupTable(object):
                  interpolator=LinearInterpolator()):
         # Powered by LUTI 
         if name1 is None:
-            name1 = f"R({self.wvl1}nm)"
+            name1 = self.Rone_name
         if name2 is None:
-            name2 = f"R({self.wvl2}nm)"
+            name2 = self.Rtwo_name
 
         Rone_min, Rone_max, Rtwo_min, Rtwo_max = self.reflectivity_range()
         Rone = np.linspace(Rone_min, Rone_max, num=num)
@@ -357,6 +399,12 @@ class PolLookupTable(object):
     def __init__(self, polLUT):
         self.data = polLUT.copy()
         self.calibrated = False
+
+    @classmethod
+    def from_path(cls, path):
+        data = read_LUT(path)
+
+        return cls(data)
 
     def calibrate(self, calibration_file, color='red'):
         # Calibrated refres to simulating pol camera signal
