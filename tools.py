@@ -277,7 +277,7 @@ class SceneInterpreter(object):
     
     def cloud_properties_fast_BSR(self, invertedLUT, wvl1, wvl2, R1_name, R2_name,
                                   umu_bins=None, phi_bins=None,
-                                  interpolated=False):
+                                  interpolate=False):
         """Takes an inverted LUT, i.e. with r_eff and tau550 variables, and 
         resamples according to SWIR pixels of approximate equal geometry. 
         Returns r_eff, tau550 as tuple."""
@@ -291,7 +291,7 @@ class SceneInterpreter(object):
         cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
                                          wvl1, wvl2, R1_name, R2_name,
                                          umu_bins=umu_bins, phi_bins=phi_bins,
-                                         interpolated=interpolated)
+                                         interpolate=interpolate)
         return cloud_properties
     
 

@@ -91,7 +91,39 @@ or get summarized scene information with
 scene.merged_data()
 ```
 
-### Bispectral retrieval (BSR)
+### LUT generation
+
+### LUT handling and inversion
+
+The LUT dataset containing the simulation results can be passed to the `BSRLookupTable` class. To initiate call
+
+```python
+from iceMACS.tools import BSRLookupTable
+LUT = BSRLookupTable(LUT_ds)
+```
+
+or from path
+
+```python
+LUT = BSRLookupTable.from_path('LUT_ds_path')
+```
+
+The dataset has to contain the two wavelengths intended to be used in the retrieval. Original data is saved in 'LUT.dataset' You can visualize the splitting of reflectivities with 
+
+```python
+LUT.display_nadir()
+```
+
+The `BSRLookupTable` class provides an automated lookup table inversion based on Paul's [`luti`](https://github.com/Ockenfuss/luti) package. Call
+
+```python
+invertedLUT = LUT.inverted(num=200, alpha=4)
+```
+where `num` is the sample number within the relevant reflectivity range and `alpha` is a parameter used to define the convex hull. `alpha=4.` has been found to work well for bispectral cloud lookup tables.
+
+### BSR retrieval
+
+The 
 
 ### Habit detection
 
