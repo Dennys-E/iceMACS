@@ -205,6 +205,7 @@ class SceneInterpreter(object):
         ax[1].set_ylabel(None)
         fig.suptitle("Relative viewing angles")
         plt.tight_layout()
+        plt.savefig('relative_view_angles.png')
         
         fig, ax = plt.subplots(ncols=2, figsize=(16,4))
         self.solar_positions.sza.plot(ax=ax[0])
@@ -303,6 +304,7 @@ class BSRLookupTable(object):
         self.dataset = LUT.copy()
         self.wvl1 = self.dataset.isel(wvl=0).wvl.values.item()
         self.wvl2 = self.dataset.isel(wvl=1).wvl.values.item()
+        # Choose names to be used in LUTI inversion
         self.Rone_name = f"R({self.wvl1}nm)"
         self.Rtwo_name = f"R({self.wvl2}nm)"
 
@@ -365,8 +367,12 @@ class BSRLookupTable(object):
         # Powered by LUTI 
         if name1 is None:
             name1 = self.Rone_name
+        else: 
+            self.Rone_name = name1
         if name2 is None:
             name2 = self.Rtwo_name
+        else: 
+            self.Rtwo_name = name2
 
         Rone_min, Rone_max, Rtwo_min, Rtwo_max = self.reflectivity_range()
         Rone = np.linspace(Rone_min, Rone_max, num=num)

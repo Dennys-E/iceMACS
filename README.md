@@ -1,5 +1,5 @@
 # iceMACS
-Collection of tools to calibrate and manage SWIR and VNIR data from the specMACS system, as well as retrieve ice cloud optical properties using a bispectral Nakajima-King retrieval. 
+Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from specMACS, as well as retrieve ice cloud optical properties and habit estimates using a bispectral Nakajima-King retrieval and angular retrieval. 
 
 ## Todos
 * Change string logs to modern f-string syntax
@@ -123,7 +123,15 @@ where `num` is the sample number within the relevant reflectivity range and `alp
 
 ### BSR retrieval
 
-The 
+The inverted lookup table contains reflectivities as coordinates and the cloud parameters in the variable `input_params`. Without any further formatting, you can pass the inverted dataset to the `SceneInterpreter` instance you want to retrieve by calling
+
+```python
+scene.cloud_properties_fast_BSR(invertedLUT, LUT.wvl1, LUT.wvl2, 
+                                LUT.Rone_name, LUT.Rtwo_name, 
+                                umu_bins=20, phi_bins=50, interpolate=True)
+```
+
+Here, `LUT` is the `BSRLookupTable` instance that produced the inverted dataset. `interpolate` chooses the method by which the simulations are cut to pixel geometries. `True` interpolates between simulated viewing geometries while `False` chooses the closest existing coordinate.
 
 ### Habit detection
 
