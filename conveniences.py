@@ -98,8 +98,7 @@ def load_AC3_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
         auxdata = glob.glob(os.path.join(source_folder, 
                                          "auxdata/vnir_"+day+"*.log"))
         # Same calibration as during EUREC4A but dark current LUT necessary
-        vnir_cal = """/archive/meteo/eurec4a/specmacs_calibration_data/
-        specMACS_VNIR_cal_preEUREC4A_temp.nc"""
+        vnir_cal = """/archive/meteo/eurec4a/specmacs_calibration_data/specMACS_VNIR_cal_preEUREC4A_temp.nc"""
         dark_current_LUT_path = """/project/meteo/work/Veronika.Poertge/PhD/data/specmacs/vnir/averaged_dark_current_vnir_20200202.nc"""
         vnir_day = macsproc.load_measurement_files_dark_current_LUT(files,
                                                                     auxdata,

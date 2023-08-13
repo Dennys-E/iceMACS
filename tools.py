@@ -54,6 +54,7 @@ class PixelInterpolator(object):
                            color='red', label=f"Filter cutoff at {cutoff}")
             ax.set_ylabel(r'Normalised signal $D(x)$')
             plt.grid()
+            plt.ylim((0,5))
             plt.legend()
             plt.show()
 
@@ -166,6 +167,48 @@ class SceneInterpreter(object):
         
         return reflectivity.rename('reflectivity')
     
+    def reflectance(self):
+        """Returns reflectance as e.g. defined in Ehrlich 2008 ice index paper.
+        """
+
+        solar_flux = (solar_flux_kurudz()
+                      .interp(wavelength=self.camera_data.wavelength.values))
+        
+        reflectance = (self.camera_data["radiance"]
+                      *(self.solar_positions.d**2)
+                      *np.pi
+                      /solar_flux)
+        
+        return reflectance.rename('reflectance')
+    
+    def ice_index_Ehrlich2008(self):
+        """Returns spectral ice index following the equation 
+        by Ehrlich et al. 2008"""
+        
+        I_s = (self.reflectance().polyfit(dim='wavelength', deg=1).sel(degree=1)
+               /self.reflectance().sel(wavelength=1640, method='nearest'))
+        I_s = I_s.rename({'polyfit_coefficients':'ice_index_Ehrlich2008'})*100
+        
+        return I_s.ice_index_Ehrlich2008
+        
+    
+    def ice_index_Jaekel2013(self):
+        """Is positive for ice clouds and negative for water clouds."""
+        I_J = ((self.camera_data.radiance.sel(wavelength=1700, method='nearest')
+               - self.camera_data.radiance.sel(wavelength=1550, method='nearest'))
+               /self.camera_data.radiance.sel(wavelength=1700, method='nearest'))
+        I_J = I_J.rename('ice_index_Jaekel2013')*100
+        return I_J
+    
+    def ice_index_Knap2002(self):
+        """Is zero for water clouds and positive for ice clouds."""
+        I_J = ((self.reflectivity().sel(wavelength=1700, method='nearest')
+               - self.reflectivity().sel(wavelength=1640, method='nearest'))
+               /self.reflectivity().sel(wavelength=1640, method='nearest'))
+        I_J = I_J.rename('ice_index_Knap2002')*100
+        return I_J
+    
+    
     def overview(self):
         vza = self.view_angles.vza
         vaa = self.view_angles.vaa
@@ -243,30 +286,6 @@ class SceneInterpreter(object):
 
         return
 
-    def ice_index_Ehrlich2008(measurement, center_wvl, wvl_lower, wvl_upper):
-        """Returns spectral ice index following the equation 
-        by Ehrlich et al. 2008
-        EXPERIMENTAL"""
-        
-        measurement=measurement.reflectivity
-        
-        R_diff = measurement.sel(wavelength=wvl_upper, method='nearest')\
-        -measurement.sel(wavelength=wvl_lower, method='nearest')
-        wvl_diff = wvl_upper-wvl_lower
-        
-        # To be extended to use linear regression
-        I_s = (R_diff/measurement.sel(wavelength=center_wvl, method='nearest'))\
-        *(100./wvl_diff)
-        
-        return I_s.rename('ice_index')
-    
-    def ice_index_Jaekel2013(self):
-
-        return
-    
-    def ice_index_Thompson2016(self):
-
-        return 
     
     def merged_data(self):
 
@@ -282,11 +301,6 @@ class SceneInterpreter(object):
         """Takes an inverted LUT, i.e. with r_eff and tau550 variables, and 
         resamples according to SWIR pixels of approximate equal geometry. 
         Returns r_eff, tau550 as tuple."""
-
-        if umu_bins is None:
-            umu_bins = invertedLUT.umu.size()
-        if phi_bins is None:
-            phi_bins = invertedLUT.phi.size()
 
                             # From retrieval_functions.py
         cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
@@ -314,10 +328,15 @@ class BSRLookupTable(object):
 
         return cls(LUT)
 
-    def display_nadir(self):
+    def display_nadir(self, sza=None):
         fig, ax = plt.subplots(figsize=(14,10))
 
-        LUTcut = self.dataset.isel(phi=0, umu=0, sza=0, ic_habit=0)
+        if sza is not None:
+            LUTcut = self.dataset.sel(sza=sza, method='nearest')
+        else: 
+            LUTcut = self.dataset.isel(sza=0)
+
+        LUTcut = LUTcut.isel(phi=0, umu=0, ic_habit=0)
 
         LUTcut1 = LUTcut.sel(wvl=self.wvl1)
         LUTcut2 = LUTcut.sel(wvl=self.wvl2)

@@ -15,13 +15,17 @@ from .conveniences import read_LUT
 
 
 def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name, 
-                  umu_bins=10, phi_bins=10, interpolate=False):
+                  umu_bins=None, phi_bins=None, interpolate=True):
     """Retrieval function that selects pixels of similar viewing geometry and
     passes to the closest fitting LUT in the inverted dataset. Function is 
     called by the SceneInterpreter class in .tools.
     
     Merged data needs to include: 'umu', 'phi', 'reflectivity'
     """
+    if umu_bins is None:
+            umu_bins = inverted.umu.size
+    if phi_bins is None:
+            phi_bins = inverted.phi.size
     
     umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
                                  bins=umu_bins)[1]
@@ -48,12 +52,12 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
             # choose bin center
             umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
             # find parts of data in chosen geometry bins
+            
             data_cut = merged_data.reflectivity\
             .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
             .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
             .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
-            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
-                   how='all')
+            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', how='all')
 
             if data_cut.x.size == 0:
                 continue
