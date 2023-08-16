@@ -15,20 +15,20 @@ from .conveniences import read_LUT
 
 
 def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name, 
-                  umu_bins=None, phi_bins=None, interpolate=True):
+                  vza_bins=None, phi_bins=None, interpolate=True):
     """Retrieval function that selects pixels of similar viewing geometry and
     passes to the closest fitting LUT in the inverted dataset. Function is 
     called by the SceneInterpreter class in .tools.
     
     Merged data needs to include: 'umu', 'phi', 'reflectivity'
     """
-    if umu_bins is None:
-            umu_bins = inverted.umu.size
+    if vza_bins is None:
+            vza_bins = inverted.vza.size
     if phi_bins is None:
             phi_bins = inverted.phi.size
     
-    umu_bin_edges = np.histogram(merged_data.umu.to_numpy().flatten(), 
-                                 bins=umu_bins)[1]
+    vza_bin_edges = np.histogram(merged_data.vza.to_numpy().flatten(), 
+                                 bins=vza_bins)[1]
     phi_bin_edges = np.histogram(merged_data.phi.to_numpy().flatten(), 
                                  bins=phi_bins)[1]
     
@@ -46,18 +46,19 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
         # choose bin center
         phi_mean = (phi_bin_edges[i_phi_bin+1]+phi_bin_edges[i_phi_bin])/2.
              
-        for i_umu_bin in range(len(umu_bin_edges)-1):
+        for i_vza_bin in range(len(vza_bin_edges)-1):
             #color_counter += 1.
             
             # choose bin center
-            umu_mean = (umu_bin_edges[i_umu_bin+1]+umu_bin_edges[i_umu_bin])/2.
+            vza_mean = (vza_bin_edges[i_vza_bin+1]+vza_bin_edges[i_vza_bin])/2.
             # find parts of data in chosen geometry bins
             
             data_cut = merged_data.reflectivity\
-            .where(umu_bin_edges[i_umu_bin]<=merged_data.umu)\
-            .where(merged_data.umu<umu_bin_edges[i_umu_bin+1])\
+            .where(vza_bin_edges[i_vza_bin]<=merged_data.vza)\
+            .where(merged_data.vza<vza_bin_edges[i_vza_bin+1])\
             .where(phi_bin_edges[i_phi_bin]<=merged_data.phi)\
-            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', how='all')
+            .where(merged_data.phi<phi_bin_edges[i_phi_bin+1]).dropna(dim='x', 
+                                                                      how='all')
 
             if data_cut.x.size == 0:
                 continue
@@ -78,10 +79,10 @@ def fast_retrieve(inverted, merged_data, wvl1, wvl2, R1_name, R2_name,
               #                                           R2_name:'Rtwo'})
             
             if interpolate:
-                LUT = inverted.interp(phi=phi_mean, umu=umu_mean)
+                LUT = inverted.interp(phi=phi_mean, umu=np.cos(np.deg2rad(vza_mean)))
 
             else: 
-                LUT = inverted.sel(phi=phi_mean, umu=umu_mean, 
+                LUT = inverted.sel(phi=phi_mean, umu=np.cos(np.deg2rad(vza_mean)), 
                                    method='nearest')
 
             LUT = LUT.rename({R1_name:'Rone', R2_name:'Rtwo'})

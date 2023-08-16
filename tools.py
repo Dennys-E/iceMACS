@@ -202,11 +202,11 @@ class SceneInterpreter(object):
     
     def ice_index_Knap2002(self):
         """Is zero for water clouds and positive for ice clouds."""
-        I_J = ((self.reflectivity().sel(wavelength=1700, method='nearest')
+        I_K = ((self.reflectivity().sel(wavelength=1700, method='nearest')
                - self.reflectivity().sel(wavelength=1640, method='nearest'))
                /self.reflectivity().sel(wavelength=1640, method='nearest'))
-        I_J = I_J.rename('ice_index_Knap2002')*100
-        return I_J
+        I_K = I_J.rename('ice_index_Knap2002')*100
+        return I_K
     
     
     def overview(self):
@@ -265,6 +265,24 @@ class SceneInterpreter(object):
         umu_min, umu_max = umu.min().values, umu.max().values
         phi_min, phi_max = phi.min().values, phi.max().values
 
+        vza_min, vza_max = vza.min().values, vza.max().values
+        vaa_min, vaa_max = vaa.min().values, vaa.max().values
+
+        fig, ax = plt.subplots(ncols=2, figsize=(16,4))
+        vza.plot.hist(bins=150, ax=ax[0], 
+                      label=f"vza PDF with min={vza_min:.2f} and max={vza_max:.2f}", 
+                      density=True)
+        ax[0].legend()
+        ax[0].set_title(None)
+        vaa.plot.hist(bins=150, ax=ax[1], 
+                      label=f"vaa PDF with min={vaa_min:.2f} and max={vaa_max:.2f}", 
+                      density=True)
+        ax[1].legend()
+        ax[1].set_title(None)
+        fig.suptitle("Absolute viewing angle relevenat ranges")
+        plt.tight_layout()
+        plt.show()
+
         fig, ax = plt.subplots(ncols=2, figsize=(16,4))
         umu.plot.hist(bins=150, ax=ax[0], 
                       label=f"umu PDF with min={umu_min:.2f} and max={umu_max:.2f}", 
@@ -305,7 +323,7 @@ class SceneInterpreter(object):
                             # From retrieval_functions.py
         cloud_properties = fast_retrieve(invertedLUT, self.merged_data(),
                                          wvl1, wvl2, R1_name, R2_name,
-                                         umu_bins=umu_bins, phi_bins=phi_bins,
+                                         vza_bins=umu_bins, phi_bins=phi_bins,
                                          interpolate=interpolate)
         return cloud_properties
     
@@ -337,6 +355,43 @@ class BSRLookupTable(object):
             LUTcut = self.dataset.isel(sza=0)
 
         LUTcut = LUTcut.isel(phi=0, umu=0, ic_habit=0)
+
+        LUTcut1 = LUTcut.sel(wvl=self.wvl1)
+        LUTcut2 = LUTcut.sel(wvl=self.wvl2)
+
+        for r_eff in LUTcut.coords['r_eff'].values:
+            ax.plot(LUTcut1.sel(r_eff=r_eff).reflectivity.to_numpy(), 
+                    LUTcut2.sel(r_eff=r_eff).reflectivity.to_numpy(),
+                    linewidth=1, label=np.round(r_eff, 2))
+
+        for itau550, tau550 in enumerate(LUTcut.coords['tau550'].values):
+            ax.plot(LUTcut1.isel(tau550=itau550).reflectivity.to_numpy(), 
+                    LUTcut2.isel(tau550=itau550).reflectivity.to_numpy(),
+                    "--", color="black",
+                    linewidth=0.7)
+            
+            x = np.max(LUTcut1.isel(tau550=itau550).reflectivity.to_numpy())
+            y = np.max(LUTcut2.isel(tau550=itau550).reflectivity.to_numpy())+0.03
+            eq = r"$\tau=$"
+            if tau550<=2:
+                plt.text(x,y, f"{eq}{tau550:.2f}", fontsize=11)
+                
+        wvl1 = LUTcut1.wvl.values
+        wvl2 = LUTcut2.wvl.values
+            
+        ax.set_xlabel(f"Reflectivity at {wvl1}nm")
+        ax.set_ylabel(f"Reflectivity at {wvl2}nm")
+        ax.legend(title=r"Effective radius [$\mu$m]", ncols=3)
+        plt.title("Nadir perspective")
+        plt.tight_layout()
+        plt.show()
+
+    def display_at(self, sza, umu, phi, ic_habit):
+        fig, ax = plt.subplots(figsize=(14,10))
+
+
+        LUTcut = (LUTcut.isel(sza=sza, phi=phi, umu=umu, method='nearest')
+                  .sel(ic_habit=ic_habit))
 
         LUTcut1 = LUTcut.sel(wvl=self.wvl1)
         LUTcut2 = LUTcut.sel(wvl=self.wvl2)
@@ -415,7 +470,7 @@ class BSRLookupTable(object):
         
 
 class PolLookupTable(object):
-    """Takes mystic out Stokes parameters and standard deviations in xarray 
+    """Takes mystic output Stokes parameters and standard deviations in xarray 
     dataset and provides calibration with srfs.
     
     TODO: Make sure use is easy. Define function, 
@@ -469,5 +524,22 @@ class PolLookupTable(object):
         return reflectivity
     
 
-        
+class PolSceneInterpreter(object):
+    """Takes pol dataset as well as nas file for scene. Provides functions to 
+    compute additional variables and interpret polarized data.
+    
+    TODO: Outline. Functions should be able to compute the polarized
+    reflectivity from Stokes params. Also needs a function to compute view 
+    angles, phi and umu from solar position and nas file. Use Annas script to 
+    get polB pos (not really necessary) and use pyproj.Geod. 
+    """
 
+    def __init__(self, camera_data, nas_data, solar_positions):
+        self.camera_data = camera_data.copy()
+        self.nas_data = nas_data.copy()
+        self.solar_positions = solar_positions.copy()
+
+    #def polarized_reflectivity(self):
+
+     #   solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
+      #                .interp(wvl=self.data.wvl.values))
