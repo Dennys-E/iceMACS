@@ -1,6 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr 
+from tqdm import tqdm
+import pyproj
+import utm
+import math
 from timeit import default_timer as timer
 
 from luti.xarray import invert_data_array
@@ -86,7 +90,7 @@ class PixelInterpolator(object):
 
         return interpolated_radiance
 
-    def filtered_radiance(self, with_bpl=True):
+    def filtered_radiance(self, with_bpl=True, remove=False):
         # Applies filter and interpolates all nan values
         if self.cutoffs is None:
             raise Exception("""Enter cutoff list with 'add_cutoffs()'
@@ -100,8 +104,12 @@ class PixelInterpolator(object):
             selection = (self.data.radiance
                         .where(self.data.int_slopes_mva<self.data.cutoff))
         
-        filtered_radiance = selection.interpolate_na(dim='x', method='spline', 
-                                                     use_coordinate=False)
+        if remove:
+            filtered_radiance = selection.dropna(dim='x', how='all')
+
+        if not remove:
+            filtered_radiance = selection.interpolate_na(dim='x', method='spline', 
+                                                         use_coordinate=False)
         self.applied_filter = True
 
         return filtered_radiance
@@ -469,6 +477,8 @@ class BSRLookupTable(object):
         return inverted
         
 
+"""The following tool are for handling of polarized data and simulations."""
+
 class PolLookupTable(object):
     """Takes mystic output Stokes parameters and standard deviations in xarray 
     dataset and provides calibration with srfs.
@@ -486,40 +496,37 @@ class PolLookupTable(object):
 
         return cls(data)
 
-    def calibrate(self, calibration_file, color='red'):
-        # Calibrated refres to simulating pol camera signal
-        self.srfs = (calibration_file.srfs.interp(wvl=self.data.wvl)
-                     .sel(color=color).mean(dim='angle'))
-        self.normalized_srfs = self.srfs/self.srfs.sum(dim='wvl')
-        self.scaled_data = self.data * self.normalized_srfs
+    def calibrated_polarized_reflectivity(self, calibration_file, color='red'):
+        self.srfs = (calibration_file.srfs.sel(color=color).mean(dim='angle'))
+        self.normalized_srfs = self.srfs/self.srfs.integrate(coord='wvl')
 
-        self.calibrated_data = self.scaled_data.sum(dim='wvl')
-        self.calibrated = True
+        self.normalized_srfs_interpolated = self.normalized_srfs.interp(wvl=self.data.wvl)
+        self.calibrated_data = (self.data * self.normalized_srfs_interpolated).integrate(coord='wvl')
 
-        return 
+        # print((self.normalized_srfs.integrate(coord='wvl') 
+        # - self.normalized_srfs_interpolated.integrate(coord='wvl'))/self.normalized_srfs.integrate(coord='wvl'))
+
+        solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
+                      .interp(wvl=self.data.wvl.values))
+        integrated_solar_flux = ((solar_flux*self.normalized_srfs_interpolated)
+                                 .integrate(coord='wvl'))
+        
+        reflectivity = (np.pi * np.sqrt(self.calibrated_data.Q**2 
+                                        + self.calibrated_data.U**2)
+                        /(integrated_solar_flux *np.cos(2.*np.pi*self.data.sza/360.))).rename("reflectivity")
+        
+        return reflectivity
+
     
-    def polarized_reflectivity(self, calibrated=False):
+    def polarized_reflectivity(self):
         # calibrated=False gives refl. per wavelength
-        if calibrated and not self.calibrated:
-            raise Exception("Calibrate data and try again")
 
         solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
                       .interp(wvl=self.data.wvl.values))
         
-        if calibrated: 
-            data = self.calibrated_data
-            # Scale and integrate solar flux, similar to Stokes params, before
-            # computing reflectivity
-            scaled_solar_flux = solar_flux * self.normalized_srfs
-            solar_flux = scaled_solar_flux.sum(dim='wvl')
-
-        if not calibrated:
-            data = self.data
-        
-        # If calibrated, does not depend on wavelength anymore
-        reflectivity = (np.pi * np.sqrt(data.Q**2 + data.U**2)
+        reflectivity = (np.pi * np.sqrt(self.data.Q**2 + self.data.U**2)
                         /(solar_flux 
-                          *np.cos(2.*np.pi*data.sza/360.)))
+                          *np.cos(2.*np.pi*self.data.sza/360.)))
         
         return reflectivity
     
@@ -537,9 +544,156 @@ class PolSceneInterpreter(object):
     def __init__(self, camera_data, nas_data, solar_positions):
         self.camera_data = camera_data.copy()
         self.nas_data = nas_data.copy()
-        self.solar_positions = solar_positions.copy()
+        self.solar_positions = solar_positions.copy().rename({'time':'time_img_binned'})
 
-    #def polarized_reflectivity(self):
+    def polarized_reflectivity(self, calibration_file):
 
-     #   solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
-      #                .interp(wvl=self.data.wvl.values))
+        srfs = (calibration_file.srfs.mean(dim='angle'))
+        normalized_srfs = srfs/srfs.integrate(coord='wvl')
+
+        solar_flux = (solar_flux_kurudz().rename({'wavelength':'wvl'})
+                      .interp(wvl=normalized_srfs.wvl.values))
+        
+        calibrated_solar_flux = (solar_flux*normalized_srfs).integrate(coord='wvl')
+        
+        reflectivity = (np.pi * np.sqrt(self.camera_data.mean_Q**2 
+                                        + self.camera_data.mean_U**2)
+                        /(calibrated_solar_flux 
+                          *np.cos(2.*np.pi*self.solar_positions
+                                  .sza.mean()/360.))).rename("reflectivity")
+
+        return reflectivity
+    
+    def _find_SWIR_indices(self, sample, swir_coords):
+        # Takes a sample and information about SWIR pixel coordinates and 
+        # returns the indices of the closest fitting point
+        distance = np.sqrt((swir_coords.lat 
+                            - self.camera_data.sel(sample=sample).lat_cloud)**2
+                            +(swir_coords.lon 
+                              - self.camera_data.sel(sample=sample).lon_cloud)**2)
+    
+        return distance.argmin(dim=("x", "time"))
+    
+    def show_sample_positions_on_SWIR(self, swir_coords, swir_scene=None):
+        fig, ax = plt.subplots(figsize=(16, 4))
+        if swir_scene is not None:
+            swir_scene.radiance.mean(dim='wavelength').plot(x='time', 
+                                                            robust=True,
+                                                            ax=ax)
+
+        for index, sample in tqdm(enumerate(self.camera_data.sample)):
+            ax.scatter(swir_scene.isel(find_SWIR_coords(sample)).time.values, 
+                       swir_scene.isel(find_SWIR_coords(sample)).x.values, marker='x', color='red')
+
+        return
+
+    def allocated_cloud_properties(self, cloud_properties, swir_coords):
+        """Searches for closest fitting retrieval results and returns two 
+        xarray datasets containing the right dimensions."""
+
+        r_eff_array = np.zeros((self.camera_data.sample.size, 
+                                cloud_properties.ic_habit.size))
+        tau550_array = np.copy(r_eff_array)
+        print("Number of iterations: ", self.camera_data.sample.size)
+        for index, sample in tqdm(enumerate(self.camera_data.sample)):
+            SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
+            r_eff_array[index,:] = (cloud_properties.r_eff
+                                    .isel(SWIR_indices).values)  
+            tau550_array[index,:] = (cloud_properties.tau550
+                                     .isel(SWIR_indices).values)
+            
+        r_eff = xr.DataArray(data=r_eff_array, 
+                             dims=['sample', 'ic_habit'], 
+                             coords=dict(sample=self.camera_data.sample,
+                                         ic_habit=cloud_properties.ic_habit)).rename("r_eff")
+                                                                                
+        tau550 = xr.DataArray(data=tau550_array, 
+                              dims=['sample', 'ic_habit'], 
+                              coords=dict(sample=self.camera_data.sample,
+                                          ic_habit=cloud_properties.ic_habit)).rename("tau550")
+                                                                        
+        return r_eff, tau550
+    
+    def halo_positions(self):
+        """Returns datasets containing halo position for each scattering angle."""
+
+        lon_halo = (self.nas_data.lon
+                    .interp(time=self.camera_data.time_img_binned)
+                    .drop_vars('time')).rename("lon_halo")
+        lat_halo = (self.nas_data.lat
+                    .interp(time=self.camera_data.time_img_binned)
+                    .drop_vars('time')).rename("lat_halo")
+        height_halo = (self.nas_data.height
+                       .interp(time=self.camera_data.time_img_binned)
+                       .drop_vars('time')).rename("height_halo")
+
+        return lon_halo, lat_halo, height_halo
+    
+    def _get_local_cartesian_vector(self, coord_tuple, utm_zone):
+        lon, lat, height = coord_tuple
+        wgs84 = pyproj.CRS("EPSG:4326")
+        target_crs = pyproj.CRS(f"EPSG:326{utm_zone}")
+        transformer = pyproj.Transformer.from_crs(wgs84, target_crs, 
+                                                  always_xy=True)
+        
+        utm_easting, utm_northing, height = transformer.transform(lon, lat, 
+                                                                  height)
+        
+        return np.array([utm_easting, utm_northing, height])
+    
+    def cartesian_cloud_positions(self, utm_zone=33):
+        cloud_coords = (self.camera_data.lon_cloud, 
+                        self.camera_data.lat_cloud,
+                        self.camera_data.height_cloud)
+        #shape (3, sample)
+        position_cloud = self._get_local_cartesian_vector(cloud_coords, utm_zone)
+
+        position_cloud_da = xr.Dataset({"easting":(("sample"),
+                                                   position_cloud[0]),
+                                       "northing":(("sample"), 
+                                                   position_cloud[1]),
+                                       "height":(("sample"), 
+                                                 position_cloud[2])},
+                                       coords={"sample":self.camera_data.sample})
+        
+        return position_cloud_da
+    
+    def cartesian_halo_positions(self, utm_zone=33):
+        # shape (3, sample, theta_mean)
+        position_halo = self._get_local_cartesian_vector(self.halo_positions(), 
+                                                         utm_zone)
+        
+        position_halo_da = xr.Dataset({"easting":(("sample", "theta_mean"),
+                                                   position_halo[0]),
+                                       "northing":(("sample", "theta_mean"), 
+                                                   position_halo[1]),
+                                       "height":(("sample", "theta_mean"), 
+                                                 position_halo[2])},
+                                       coords={"sample":self.camera_data.sample,
+                                               "theta_mean":self.camera_data.theta_mean})
+    
+        return position_halo_da
+    
+    def halo_cloud_distance(self, utm_zone=33):
+        position_halo_da = self.cartesian_halo_positions(utm_zone=utm_zone)
+        position_cloud_da = self.cartesian_cloud_positions(utm_zone=utm_zone)
+        diff = position_halo_da - position_cloud_da
+
+        norm = np.sqrt(np.square(diff.easting)+np.square(diff.northing)
+                       +np.square(diff.height)).rename("halo_cloud_distance")
+
+        return norm
+    
+    def absolute_view_angles(self, utm_zone=33):
+        diff = (self.cartesian_halo_positions(utm_zone=utm_zone) 
+                - self.cartesian_cloud_positions(utm_zone=utm_zone))
+
+        ground_distance = np.sqrt(np.square(diff.easting)+np.square(diff.northing))
+        
+        # shape (sample, theta)
+        vza = np.rad2deg(np.arctan2(ground_distance, diff.height)).rename("vza")
+
+        vaa = ((90 - np.rad2deg(np.arctan2(diff.easting, diff.northing))+360)%360).rename("vaa")
+
+        return vza, vaa
+    
