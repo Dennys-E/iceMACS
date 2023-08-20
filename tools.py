@@ -513,7 +513,8 @@ class PolLookupTable(object):
         
         reflectivity = (np.pi * np.sqrt(self.calibrated_data.Q**2 
                                         + self.calibrated_data.U**2)
-                        /(integrated_solar_flux *np.cos(2.*np.pi*self.data.sza/360.))).rename("reflectivity")
+                        /(integrated_solar_flux 
+                          *np.cos(np.deg2rad(self.data.sza)))).rename("simulated_reflectivity")
         
         return reflectivity
 
@@ -526,19 +527,31 @@ class PolLookupTable(object):
         
         reflectivity = (np.pi * np.sqrt(self.data.Q**2 + self.data.U**2)
                         /(solar_flux 
-                          *np.cos(2.*np.pi*self.data.sza/360.)))
+                          *np.cos(np.deg2rad(self.data.sza))))
         
         return reflectivity
     
+    def DOLP(self):
+        DOLP = (np.sqrt(self.data.Q**2 + self.data.U**2)/self.data.I).rename("DOLP")
+
+        return DOLP
+    
+    def calibrated_DOLP(self, calibration_file, color='red'):
+        
+        self.srfs = (calibration_file.srfs.sel(color=color).mean(dim='angle'))
+        self.normalized_srfs = self.srfs/self.srfs.integrate(coord='wvl')
+
+        self.normalized_srfs_interpolated = self.normalized_srfs.interp(wvl=self.data.wvl)
+        self.calibrated_data = (self.data * self.normalized_srfs_interpolated).integrate(coord='wvl')
+
+        DOLP = (np.sqrt(self.calibrated_data.Q**2 + self.calibrated_data.U**2)
+                /self.calibrated_data.I).rename("simulated_DOLP")
+        
+        return DOLP
 
 class PolSceneInterpreter(object):
     """Takes pol dataset as well as nas file for scene. Provides functions to 
     compute additional variables and interpret polarized data.
-    
-    TODO: Outline. Functions should be able to compute the polarized
-    reflectivity from Stokes params. Also needs a function to compute view 
-    angles, phi and umu from solar position and nas file. Use Annas script to 
-    get polB pos (not really necessary) and use pyproj.Geod. 
     """
 
     def __init__(self, camera_data, nas_data, solar_positions):
@@ -559,10 +572,18 @@ class PolSceneInterpreter(object):
         reflectivity = (np.pi * np.sqrt(self.camera_data.mean_Q**2 
                                         + self.camera_data.mean_U**2)
                         /(calibrated_solar_flux 
-                          *np.cos(2.*np.pi*self.solar_positions
-                                  .sza.mean()/360.))).rename("reflectivity")
+                          *np.cos(np.deg2rad(self.solar_positions
+                                  .sza.mean())))).rename("reflectivity")
+
 
         return reflectivity
+    
+    def DOLP(self):
+
+        DOLP = (np.sqrt(self.camera_data.mean_Q**2 + self.camera_data.mean_U**2)/
+                self.camera_data.mean_I).rename("DOLP")
+        
+        return DOLP
     
     def _find_SWIR_indices(self, sample, swir_coords):
         # Takes a sample and information about SWIR pixel coordinates and 
@@ -692,8 +713,16 @@ class PolSceneInterpreter(object):
         
         # shape (sample, theta)
         vza = np.rad2deg(np.arctan2(ground_distance, diff.height)).rename("vza")
-
         vaa = ((90 - np.rad2deg(np.arctan2(diff.easting, diff.northing))+360)%360).rename("vaa")
 
         return vza, vaa
+    
+    def relative_view_angles(self, utm_zone=33):
+        vza, vaa = self.absolute_view_angles(utm_zone=utm_zone)
+        vza = np.deg2rad(vza)
+
+        umu = np.cos(vza).rename("umu")
+        phi = ((vaa - self.solar_positions.saa.mean())%360).rename("phi")
+
+        return umu, phi
     
