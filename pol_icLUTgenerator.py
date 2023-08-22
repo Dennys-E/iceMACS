@@ -14,22 +14,25 @@ from .paths import *
 
 def get_pol_ic_stokes_params(args):
         
-    tau550, r_eff, wvl_array, phi, umu, sza,\
-    cloud_top_distance,\
-    wvl_grid_file_path, ic_habit, surface_roughness, ic_properties, input_file_template = args
+    (tau550, r_eff, wvl_array, phi, umu, sza,
+    cloud_top_distance,
+    wvl_grid_file_path, ic_habit, surface_roughness, ic_properties, 
+    input_file_template, cloud_altitude_grid) = args
         
     temp_dir_path = tempfile.mkdtemp()
         
     cloud_file_path = temp_dir_path+'/temp_cloud_file.dat'
     generated_input_file_path = temp_dir_path+'/temp_input.inp'
     
-    # Define cloud structure and generate ic file with corresponding values
-    altitude_grid = np.array([7, 8, 9, 10])
-    WC_array = np.array([0.1, 0.1, 0.1, 0.1])
-    r_eff_array = r_eff*np.array([1, 1, 1, 1])
-    write_cloud_file(cloud_file_path, altitude_grid, WC_array, r_eff_array)
+    # Define cloud structure and generate cloud file
+    layers = np.ones(len(cloud_altitude_grid))
+    WC_array = 0.1*layers
+    r_eff_array = r_eff*layers
+    write_cloud_file(cloud_file_path, cloud_altitude_grid, 
+                     WC_array, r_eff_array)
     cloud_file = np.loadtxt(cloud_file_path)
     cloud_top = np.max(cloud_file[:,0])
+    
     
     if ic_properties == "yang2013":
         habit_mode = "ic_habit_yang2013"
@@ -69,7 +72,8 @@ def get_pol_ic_stokes_params(args):
 
 def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array, 
                     umu_array, sza_array, 
-                    r_eff_array, tau550_array, ic_habit_array, phi0=0, 
+                    r_eff_array, tau550_array, ic_habit_array, cloud_altitude_grid,
+                    phi0=0, 
                     cloud_top_distance=1, ic_properties="baum_v36", 
                     surface_roughness="severe", CPUs=8, description=""):
     
@@ -124,7 +128,8 @@ def write_pol_icLUT(LUTpath, input_file_template, wvl_array, phi_array,
                                            it.repeat(ic_habit), 
                                            it.repeat(surface_roughness),
                                            it.repeat(ic_properties),
-                                           it.repeat(input_file_template))
+                                           it.repeat(input_file_template),
+                                           it.repeat(cloud_altitude_grid))
                 
                         print("Open pool for ", "r_eff=", r_eff, "phi=", phi, 
                               "umu=", umu, "sza=", sza)

@@ -613,15 +613,19 @@ class PolSceneInterpreter(object):
         xarray datasets containing the right dimensions."""
 
         r_eff_array = np.zeros((self.camera_data.sample.size, 
-                                cloud_properties.ic_habit.size))
+                                cloud_properties.ic_habit.size))*np.nan
         tau550_array = np.copy(r_eff_array)
         print("Number of iterations: ", self.camera_data.sample.size)
         for index, sample in tqdm(enumerate(self.camera_data.sample)):
             SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
-            r_eff_array[index,:] = (cloud_properties.r_eff
-                                    .isel(SWIR_indices).values)  
-            tau550_array[index,:] = (cloud_properties.tau550
-                                     .isel(SWIR_indices).values)
+            try:
+                r_eff_array[index,:] = (cloud_properties.r_eff
+                                        .isel(SWIR_indices).values)  
+                tau550_array[index,:] = (cloud_properties.tau550
+                                        .isel(SWIR_indices).values)
+            except:
+                continue
+
             
         r_eff = xr.DataArray(data=r_eff_array, 
                              dims=['sample', 'ic_habit'], 
@@ -655,7 +659,7 @@ class PolSceneInterpreter(object):
         wgs84 = pyproj.CRS("EPSG:4326")
         target_crs = pyproj.CRS(f"EPSG:326{utm_zone}")
         transformer = pyproj.Transformer.from_crs(wgs84, target_crs, 
-                                                  always_xy=True)
+                                                  always_xy=True, accuracy=1.)
         
         utm_easting, utm_northing, height = transformer.transform(lon, lat, 
                                                                   height)
