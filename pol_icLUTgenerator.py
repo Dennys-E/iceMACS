@@ -27,7 +27,9 @@ def get_pol_ic_stokes_params(args):
     # Define cloud structure and generate cloud file
     layers = np.ones(len(cloud_altitude_grid))
     WC_array = 0.1*layers
+    WC_array[-1]=0
     r_eff_array = r_eff*layers
+    r_eff_array[-1]=0
     write_cloud_file(cloud_file_path, cloud_altitude_grid, 
                      WC_array, r_eff_array)
     cloud_file = np.loadtxt(cloud_file_path)

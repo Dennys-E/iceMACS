@@ -6,6 +6,8 @@ import pyproj
 import utm
 import math
 from timeit import default_timer as timer
+import datetime
+import warnings
 
 from luti.xarray import invert_data_array
 from luti import Alphachecker
@@ -575,7 +577,6 @@ class PolSceneInterpreter(object):
                           *np.cos(np.deg2rad(self.solar_positions
                                   .sza.mean())))).rename("reflectivity")
 
-
         return reflectivity
     
     def DOLP(self):
@@ -595,38 +596,38 @@ class PolSceneInterpreter(object):
     
         return distance.argmin(dim=("x", "time"))
     
-    def show_sample_positions_on_SWIR(self, swir_coords, swir_scene=None):
-        fig, ax = plt.subplots(figsize=(16, 4))
-        if swir_scene is not None:
-            swir_scene.radiance.mean(dim='wavelength').plot(x='time', 
-                                                            robust=True,
-                                                            ax=ax)
-
-        for index, sample in tqdm(enumerate(self.camera_data.sample)):
-            ax.scatter(swir_scene.isel(find_SWIR_coords(sample)).time.values, 
-                       swir_scene.isel(find_SWIR_coords(sample)).x.values, marker='x', color='red')
-
-        return
-
     def allocated_cloud_properties(self, cloud_properties, swir_coords):
         """Searches for closest fitting retrieval results and returns two 
         xarray datasets containing the right dimensions."""
 
+        if (cloud_properties.time.size != swir_coords.time.size or 
+            cloud_properties.x.size != swir_coords.x.size):
+            warnings.warn(r"""Dimensions of swir coordinates and cloud properties do
+                            not match! This will cause false assignment of 
+                            SWIR data since locations are assigned by index, not value.
+                            Coordinates will now be mapped onto cloud property grid.""")
+            swir_coords = swir_coords.interp(time=cloud_properties.time,
+                                          x = cloud_properties.x)
+
         r_eff_array = np.zeros((self.camera_data.sample.size, 
                                 cloud_properties.ic_habit.size))*np.nan
         tau550_array = np.copy(r_eff_array)
-        print("Number of iterations: ", self.camera_data.sample.size)
+        
+        #swir_x_array = np.zeros((self.camera_data.sample.size))*np.nan
+        #swir_time_array = np.zeros((self.camera_data.sample.size))*np.nan
+        
+        #print("Number of iterations: ", self.camera_data.sample.size)
         for index, sample in tqdm(enumerate(self.camera_data.sample)):
-            SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
-            try:
-                r_eff_array[index,:] = (cloud_properties.r_eff
-                                        .isel(SWIR_indices).values)  
-                tau550_array[index,:] = (cloud_properties.tau550
-                                        .isel(SWIR_indices).values)
-            except:
-                continue
 
-            
+            SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
+            # swir_x_array[index] = SWIR_indices['x'].values.item()
+            # swir_time_array[index] = SWIR_indices['time'].values.item()
+
+            r_eff_array[index,:] = (cloud_properties.r_eff
+                                    .isel(SWIR_indices).values)  
+            tau550_array[index,:] = (cloud_properties.tau550
+                                    .isel(SWIR_indices).values)
+
         r_eff = xr.DataArray(data=r_eff_array, 
                              dims=['sample', 'ic_habit'], 
                              coords=dict(sample=self.camera_data.sample,
@@ -636,8 +637,44 @@ class PolSceneInterpreter(object):
                               dims=['sample', 'ic_habit'], 
                               coords=dict(sample=self.camera_data.sample,
                                           ic_habit=cloud_properties.ic_habit)).rename("tau550")
-                                                                        
+
+        # swir_x = xr.DataArray(data=swir_x_array, 
+        #                      dims=['sample'], 
+        #                      coords=dict(sample=self.camera_data.sample)).rename("swir_x")  
+
+        # swir_time = xr.DataArray(data=swir_time_array, 
+        #                      dims=['sample'], 
+        #                      coords=dict(sample=self.camera_data.sample)).rename("swir_time")  
+                                                  
         return r_eff, tau550
+    
+    def allocated_swir_coordinates(self, swir_coords):
+        """Searches for closest fitting retrieval results and returns two 
+        xarray datasets containing the right dimensions."""
+
+        """TODO: This seems to give inverted x coordinate. Maybe change to compute similar to the previous function"""
+        time_array = []
+        x_array = []
+
+        print("Number of iterations: ", self.camera_data.sample.size)
+        for index, sample in tqdm(enumerate(self.camera_data.sample)):
+            SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
+            try:
+                time = swir_coords.isel(SWIR_indices).time.values
+                time_array.append(time)
+                x_array.append(swir_coords.isel(SWIR_indices).x.values)
+            except:
+                continue
+
+        time = xr.DataArray(data=time_array, 
+                            dims=['sample'], 
+                            coords=dict(sample=self.camera_data.sample)).rename("swir_time")
+                                                                                
+        x = xr.DataArray(data=x_array, 
+                         dims=['sample'], 
+                         coords=dict(sample=self.camera_data.sample)).rename("swir_x")
+                                                                        
+        return time, x
     
     def halo_positions(self):
         """Returns datasets containing halo position for each scattering angle."""
@@ -710,6 +747,7 @@ class PolSceneInterpreter(object):
         return norm
     
     def absolute_view_angles(self, utm_zone=33):
+        # pointing from cloud to halo
         diff = (self.cartesian_halo_positions(utm_zone=utm_zone) 
                 - self.cartesian_cloud_positions(utm_zone=utm_zone))
 
