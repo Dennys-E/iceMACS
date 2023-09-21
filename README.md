@@ -133,27 +133,6 @@ scene.cloud_properties_fast_BSR(invertedLUT, LUT.wvl1, LUT.wvl2,
 
 Here, `LUT` is the `BSRLookupTable` instance that produced the inverted dataset. `interpolate` chooses the method by which the simulations are cut to pixel geometries. `True` interpolates between simulated viewing geometries while `False` chooses the closest existing coordinate.
 
-### Habit detection
-
-Mystic simulations at wavelengths sampling the pol camera spectral response function have to be "calibrated" in order to reporoduce the actual measured signal. The `polLutInterpolator` class provides functions to get simulated reflectivities representing polA/B signals. Initiate with LUT as xarray dataset
-
-```python
-from iceMACS.tools import polLutInterpreter
-interp = polLutInterpreter(polLUT)
-```
-
-and calibrate with 
-
-```python
-interp.calibrate(inflight_calibration_file)
-```
-
-You can check if the `interp` object is calibrated with `interp.calibrated`. The normalised spectral response, rescaled Stokes parameters and calibrated radiance are also available as object properties. Compute calibrated reflectivities, relative to Kurudz E<sub>0</sub>, with
-
-```python
-interp.get_polarized_reflectivity(calibrated=True)
-```
-
-with `False` being default.
+### Angular habit retrieval
 
 ### Additional functionalities
