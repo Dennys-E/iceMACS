@@ -3,10 +3,7 @@ import matplotlib.pyplot as plt
 import xarray as xr 
 from tqdm import tqdm
 import pyproj
-import utm
-import math
 from timeit import default_timer as timer
-import datetime
 import warnings
 
 from luti.xarray import invert_data_array
@@ -607,7 +604,7 @@ class PolSceneInterpreter(object):
                             SWIR data since locations are assigned by index, not value.
                             Coordinates will now be mapped onto cloud property grid.""")
             swir_coords = swir_coords.interp(time=cloud_properties.time,
-                                          x = cloud_properties.x)
+                                             x=cloud_properties.x)
 
         r_eff_array = np.zeros((self.camera_data.sample.size, 
                                 cloud_properties.ic_habit.size))*np.nan
@@ -652,7 +649,6 @@ class PolSceneInterpreter(object):
         """Searches for closest fitting retrieval results and returns two 
         xarray datasets containing the right dimensions."""
 
-        """TODO: This seems to give inverted x coordinate. Maybe change to compute similar to the previous function"""
         time_array = []
         x_array = []
 

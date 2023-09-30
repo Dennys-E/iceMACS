@@ -35,7 +35,7 @@ such as reflectivities, ice index and relative view angles. The updated `PixelIn
 ## Usage
 
 ### SWIR bad pixel interpolation
-Many A(C)³ scenes are relatively dark, with a high solar zenith angle and low cirrus rediance values. Some pixels are shown to be unreliable under these conditions. The `PixelInterpolator` class finds these pixels and interpolates for the entire scene. Additionally, interpolation over invalid pixel from the bad pixel list is performed, analogous to the `runmacs` `BadPixelFixer`.
+Many (AC)³ scenes are relatively dark, with a high solar zenith angle and low cirrus rediance values. Some pixels are shown to be unreliable under these conditions. The `PixelInterpolator` class finds these pixels and interpolates for the entire scene. Additionally, interpolation over invalid pixel from the bad pixel list is performed, analogous to the `runmacs` `BadPixelFixer`.
 Initiate with loaded SWIR dataset, containing the variables `radiance`and `valid` access "badness" signal with
 
 ```python
