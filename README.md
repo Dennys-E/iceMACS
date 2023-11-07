@@ -16,6 +16,9 @@ Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from spe
 * Add documentation for SceneInterpreter
 * Update documentation for filter
 * Add type hints
+* Include functions for polarized retrieval
+* Fill the examples directory
+* Move repo to gitlab
 
 - [Structure](#-structure)
 - [Usage](#-usage)
