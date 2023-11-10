@@ -4,12 +4,10 @@ Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from spe
 ## Todos
 * Change string logs to modern f-string syntax
 * Change <code>open()</code> calls when reading files to <code>with open()</code> in order to ensure files are closed when exception occurs.
-* Instead of 
 * Find a way to avoid * imports in <code>__init__</code> file
 * Unify LUT generators, preferably into one single function.
-* Restructure submodules to avoid confusion. Add classes.
 * Add examples
-* Complete documentation under usage
+* Complete documentation under usage!!
 * Add a git submodules functionality
 * Find better way to organize paths
 * Try to replace \ line continuation with brackets
