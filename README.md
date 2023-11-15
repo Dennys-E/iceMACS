@@ -8,6 +8,7 @@ Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from spe
 * Include functions for polarized retrieval
 * Move repo to gitlab
 * Check for cloud distance parameter 
+* Make the allocation of cloud properties more stable
 
 - [Structure](#-structure)
 - [Usage](#-usage)
