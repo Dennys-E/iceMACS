@@ -2,20 +2,10 @@
 Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from specMACS, as well as retrieve ice cloud optical properties and habit estimates using a bispectral Nakajima-King retrieval and angular retrieval. 
 
 ## Todos
-* Change string logs to modern f-string syntax
-* Change <code>open()</code> calls when reading files to <code>with open()</code> in order to ensure files are closed when exception occurs.
-* Find a way to avoid * imports in <code>__init__</code> file
 * Unify LUT generators, preferably into one single function.
-* Add examples
-* Complete documentation under usage!!
 * Add a git submodules functionality
 * Find better way to organize paths
-* Try to replace \ line continuation with brackets
-* Add documentation for SceneInterpreter
-* Update documentation for filter
-* Add type hints
 * Include functions for polarized retrieval
-* Fill the examples directory
 * Move repo to gitlab
 * Check for cloud distance parameter 
 
@@ -35,6 +25,8 @@ such as reflectivities, ice index and relative view angles. The updated `PixelIn
 
 
 ## Usage
+
+This readme contains the documentation of the most important functions contained in iceMACS but is not exhaustive. There are additional functions that might be useful for you. 
 
 ### SWIR bad pixel interpolation
 Many (AC)³ scenes are relatively dark, with a high solar zenith angle and low cirrus rediance values. Some pixels are shown to be unreliable under these conditions. The `PixelInterpolator` class finds these pixels and interpolates for the entire scene. Additionally, interpolation over invalid pixel from the bad pixel list is performed, analogous to the `runmacs` `BadPixelFixer`.
@@ -67,33 +59,45 @@ filtered_radiance = interp.interpolated_radiance(with_bpl=True)
 where also interpolating pixels from bad pixel list is the default. 
 
 ### Data formatting
-The `SceneInterpreter` class takes calibrated loaded SWIR and VNIR datasets, as view angles and solar position datasets and fascilitates computation of variables that need to be passed to the `LUTGenerator` functions. Initiate with
+The `SceneInterpreter` class takes calibrated loaded SWIR and VNIR datasets, as view angles and solar position datasets and facilitates computation of variables that need to be passed to the `LUTGenerator` functions. Initiate with
 
 ```python
 from iceMACS.tools import SceneInterpreter
 scene = SceneInterpreter(swir_scene, view_angles, solar_positions)
 ```
-
-and get summarized scene geometry with 
+and get summarized scene geometry for LUT reference with 
 ``` python
 scene.overview()
 ```
-
-Add relative view angles and reflectivity variable with
+Get relative view angles, reflectivity, ice index etc. variables with
 
 ```python
-swir_scene['reflectivity'] = scene.reflectivity()
-swir_scene['umu'] = scene.umu()
-swir_scene['phi'] = scene.phi()
+scene.reflectivity()
+scene.umu()
+scene.phi()
 ```
-
 or get summarized scene information with 
 
 ```python
 scene.merged_data()
 ```
 
+The effective radius and optical thickness are returned by the SceneInterpreter as an xarray DataSet through
+
+```python
+scene.cloud_properties_fast_BSR(...)
+```
+More on that in the section about the bispectral retrieval. 
+
 ### LUT generation
+
+The simulation results for various viewing geometries, ice crystal habits and bulk optical properties are obtained from calling uvspec and storing the results in a `.nc` file. Call with 
+
+```python
+iceMACS.write_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, sza_array, r_eff_array, tau550_array, ic_habit_array, cloud_altitude_grid, phi0=0, cloud_top_distance=1, ic_properties="baum_v36", surface_roughness="severe", CPUs=8, description="")
+```
+
+with the desired coordinate arrays. The function is defined in the `icLUTgenerator.py` module. The `CPUs` keyword specifies the number of processor units that should be used during the parallel calling of uvspec. 
 
 ### LUT handling and inversion
 
@@ -116,6 +120,12 @@ The dataset has to contain the two wavelengths intended to be used in the retrie
 LUT.display_nadir()
 ```
 
+Similarly, a different viewing geometry and solar position can be selected with 
+
+```python
+LUT.display_at(self, sza, umu, phi, ic_habit)
+```
+
 The `BSRLookupTable` class provides an automated lookup table inversion based on Paul's [`luti`](https://github.com/Ockenfuss/luti) package. Call
 
 ```python
@@ -123,7 +133,7 @@ invertedLUT = LUT.inverted(num=200, alpha=4)
 ```
 where `num` is the sample number within the relevant reflectivity range and `alpha` is a parameter used to define the convex hull. `alpha=4.` has been found to work well for bispectral cloud lookup tables.
 
-### BSR retrieval
+### Bispectral retrieval
 
 The inverted lookup table contains reflectivities as coordinates and the cloud parameters in the variable `input_params`. Without any further formatting, you can pass the inverted dataset to the `SceneInterpreter` instance you want to retrieve by calling
 
