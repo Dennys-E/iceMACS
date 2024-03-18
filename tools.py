@@ -5,13 +5,17 @@ from tqdm import tqdm
 import pyproj
 from timeit import default_timer as timer
 import warnings
+import tempfile 
+import glob
+import os
+import shutil
 
 from luti.xarray import invert_data_array
 from luti import Alphachecker
 from luti import LinearInterpolator
 
 from .retrieval_functions import fast_retrieve
-from .conveniences import read_LUT
+from .conveniences import read_LUT, save_as_netcdf
 from .paths import LIBRADTRAN_PATH
 
 
@@ -23,7 +27,7 @@ class PixelInterpolator(object):
     'valid' variable, or dynamically find unreliable pixel rows. data should
     contain a 'radiance' variable."""
 
-    # TODO: Add dimension to output, indicating what pixels were interpolated
+    # TODO: Add dimension to output array, indicating what pixels were interpolated
 
     def __init__(self, swir_ds, window=None):
         self.data = swir_ds.copy()
@@ -198,7 +202,6 @@ class SceneInterpreter(object):
         
         return I_s.ice_index_Ehrlich2008
         
-    
     def ice_index_Jaekel2013(self):
         """Is positive for ice clouds and negative for water clouds."""
         I_J = ((self.camera_data.radiance.sel(wavelength=1700, method='nearest')
@@ -255,7 +258,6 @@ class SceneInterpreter(object):
         ax[1].set_ylabel(None)
         fig.suptitle("Relative viewing angles")
         plt.tight_layout()
-        plt.savefig('relative_view_angles.png')
         
         fig, ax = plt.subplots(ncols=2, figsize=(16,4))
         self.solar_positions.sza.plot(ax=ax[0])
@@ -476,14 +478,12 @@ class BSRLookupTable(object):
         return inverted
         
 
-"""The following tool are for handling of polarized data and simulations."""
+"""The following tools are for handling of polarized data and simulations.
+----------------------------------------------------------------------------"""
 
 class PolLookupTable(object):
     """Takes mystic output Stokes parameters and standard deviations in xarray 
-    dataset and provides calibration with srfs.
-    
-    TODO: Make sure use is easy. Define function, 
-    pol_cam_reflectivity(sself, calibration_file)"""
+    dataset and provides calibration with srfs."""
 
     def __init__(self, polLUT):
         self.data = polLUT.copy()
@@ -492,10 +492,32 @@ class PolLookupTable(object):
     @classmethod
     def from_path(cls, path):
         data = read_LUT(path)
-
         return cls(data)
+    
+    def vza(self):
+        return np.rad2deg(np.arccos(self.data.umu)).rename({'umu':'theta'})
+    
+    def over_theta_in_pp(self, sza, method='nearest'):
+        """Returns dataset with scattering angle as coordinate, merged for all
+        available umu with phi=0 (towards sun) and phi=180 (away from sun).
+        TODO: implement a check for phi=0° and 180° grid points"""
 
-    def calibrated_polarized_reflectivity(self, calibration_file, color='red'):
+        # theta = 180° - sza - vza
+        towards_sun = self.data.sel(phi=0).sel(sza=sza, method=method)
+        towards_sun = (towards_sun.assign_coords(umu=180-towards_sun.sza.values
+                                                 -np.rad2deg(np.arccos(towards_sun.umu.values)))
+                                  .rename({'umu':'theta'}).sortby('theta'))
+        # theta = 180° - sza + vza
+        away_from_sun = self.data.sel(phi=180).sel(sza=sza, method=method)
+        away_from_sun = (away_from_sun.assign_coords(umu=180-away_from_sun.sza.values
+                                                     +np.rad2deg(np.arccos(away_from_sun.umu.values)))
+                                      .rename({'umu':'theta'}).sortby('theta'))
+
+        return xr.concat([towards_sun, 
+                          away_from_sun], dim='theta').sortby('theta')
+
+
+    def polarized_reflectivity_with_srfs(self, calibration_file, color='red'):
         self.srfs = (calibration_file.srfs.sel(color=color).mean(dim='angle'))
         self.normalized_srfs = self.srfs/self.srfs.integrate(coord='wvl')
 
@@ -535,7 +557,7 @@ class PolLookupTable(object):
 
         return DOLP
     
-    def calibrated_DOLP(self, calibration_file, color='red'):
+    def DOLP_with_srfs(self, calibration_file, color='red'):
         
         self.srfs = (calibration_file.srfs.sel(color=color).mean(dim='angle'))
         self.normalized_srfs = self.srfs/self.srfs.integrate(coord='wvl')
@@ -548,6 +570,7 @@ class PolLookupTable(object):
         
         return DOLP
 
+
 class PolSceneInterpreter(object):
     """Takes pol dataset as well as nas file for scene. Provides functions to 
     compute additional variables and interpret polarized data.
@@ -559,7 +582,7 @@ class PolSceneInterpreter(object):
         self.solar_positions = solar_positions.copy().rename({'time':'time_img_binned'})
 
     def polarized_reflectivity(self, calibration_file):
-
+        # relative to absolute solar irradiance
         srfs = (calibration_file.srfs.mean(dim='angle'))
         normalized_srfs = srfs/srfs.integrate(coord='wvl')
 
@@ -573,14 +596,18 @@ class PolSceneInterpreter(object):
                         /(calibrated_solar_flux 
                           *np.cos(np.deg2rad(self.solar_positions
                                   .sza.mean())))).rename("reflectivity")
-
         return reflectivity
     
-    def DOLP(self):
+    def polarized_radiance(self):
+    
+        radiance = (np.sqrt(self.camera_data.mean_Q**2 
+                                        + self.camera_data.mean_U**2).rename("radiance"))
 
+        return radiance
+    
+    def DOLP(self):
         DOLP = (np.sqrt(self.camera_data.mean_Q**2 + self.camera_data.mean_U**2)/
                 self.camera_data.mean_I).rename("DOLP")
-        
         return DOLP
     
     def _find_SWIR_indices(self, sample, swir_coords):
@@ -590,60 +617,75 @@ class PolSceneInterpreter(object):
                             - self.camera_data.sel(sample=sample).lat_cloud)**2
                             +(swir_coords.lon 
                               - self.camera_data.sel(sample=sample).lon_cloud)**2)
-    
         return distance.argmin(dim=("x", "time"))
     
-    def allocated_cloud_properties(self, cloud_properties, swir_coords):
+    def allocated_cloud_properties(self, cloud_properties, swir_coords, 
+                                   nchunks=10):
         """Searches for closest fitting retrieval results and returns two 
         xarray datasets containing the right dimensions."""
 
         if (cloud_properties.time.size != swir_coords.time.size or 
             cloud_properties.x.size != swir_coords.x.size):
-            warnings.warn(r"""Dimensions of swir coordinates and cloud properties do
-                            not match! This will cause false assignment of 
-                            SWIR data since locations are assigned by index, not value.
-                            Coordinates will now be mapped onto cloud property grid.""")
+            warnings.warn(r"""Dimensions of swir coordinates and cloud properties do not match! This would cause false assignment of SWIR data since locations are assigned by index, not value. 
+                          Coordinates will now be mapped onto cloud property grid.""")
             swir_coords = swir_coords.interp(time=cloud_properties.time,
                                              x=cloud_properties.x)
+            
+        temp_dir_path = tempfile.mkdtemp()
 
-        r_eff_array = np.zeros((self.camera_data.sample.size, 
-                                cloud_properties.ic_habit.size))*np.nan
-        tau550_array = np.copy(r_eff_array)
+        sample_chunks = np.array_split(self.camera_data.sample.to_numpy(),
+                                       nchunks)
         
-        #swir_x_array = np.zeros((self.camera_data.sample.size))*np.nan
-        #swir_time_array = np.zeros((self.camera_data.sample.size))*np.nan
+        for chunk in sample_chunks:
+
+            sample_min, sample_max = np.min(chunk), np.max(chunk)
+            print(f"Find samples {sample_min}-{sample_max} of {self.camera_data.sample.size-1}...")
+            r_eff_array = np.zeros((len(chunk), 
+                                    cloud_properties.ic_habit.size))*np.nan
+            tau550_array = np.copy(r_eff_array)
+
+            for index, sample in enumerate(tqdm(chunk)):
+
+                SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
+
+                r_eff_array[index,:] = (cloud_properties.r_eff
+                                        .isel(SWIR_indices).values)  
+                tau550_array[index,:] = (cloud_properties.tau550
+                                        .isel(SWIR_indices).values)
+
+            r_eff = xr.DataArray(data=r_eff_array, 
+                                dims=['sample', 'ic_habit'], 
+                                coords=dict(sample=chunk,
+                                            ic_habit=cloud_properties.ic_habit)).rename("r_eff")
+            save_as_netcdf(r_eff,
+                           fr"{temp_dir_path}\r_eff_chunks_{sample_min}-{sample_max}.nc")
+                                                                                    
+            tau550 = xr.DataArray(data=tau550_array, 
+                                dims=['sample', 'ic_habit'], 
+                                coords=dict(sample=chunk,
+                                            ic_habit=cloud_properties.ic_habit)).rename("tau550")     
+            save_as_netcdf(tau550,
+                           fr"{temp_dir_path}\tau550_chunks_{sample_min}-{sample_max}.nc")
         
-        #print("Number of iterations: ", self.camera_data.sample.size)
-        for index, sample in tqdm(enumerate(self.camera_data.sample)):
+        print("Load chunked results to memory and merge...")
+        print("For r_eff...")
+        r_eff_paths = os.path.join(temp_dir_path, 'r_eff_chunks_*.nc')
+        r_eff_path_list = glob.glob(r_eff_paths)
+        r_eff = xr.open_dataset(r_eff_path_list[0])
+        for r_eff_path in tqdm(r_eff_path_list[1::]):
+            r_eff = xr.concat([r_eff, xr.open_dataset(r_eff_path)], dim='sample')
 
-            SWIR_indices = self._find_SWIR_indices(sample, swir_coords)
-            # swir_x_array[index] = SWIR_indices['x'].values.item()
-            # swir_time_array[index] = SWIR_indices['time'].values.item()
+        print("For tau550...")
+        tau550_paths = os.path.join(temp_dir_path, 'tau550_chunks_*.nc')
+        tau550_path_list = glob.glob(tau550_paths)
+        tau550 = xr.open_dataset(tau550_path_list[0])
+        for tau550_path in tqdm(tau550_path_list[1::]):
+            tau550 = xr.concat([tau550, xr.open_dataset(tau550_path)], dim='sample')
 
-            r_eff_array[index,:] = (cloud_properties.r_eff
-                                    .isel(SWIR_indices).values)  
-            tau550_array[index,:] = (cloud_properties.tau550
-                                    .isel(SWIR_indices).values)
+        shutil.rmtree(temp_dir_path, ignore_errors=True)
+        print("Done!")
 
-        r_eff = xr.DataArray(data=r_eff_array, 
-                             dims=['sample', 'ic_habit'], 
-                             coords=dict(sample=self.camera_data.sample,
-                                         ic_habit=cloud_properties.ic_habit)).rename("r_eff")
-                                                                                
-        tau550 = xr.DataArray(data=tau550_array, 
-                              dims=['sample', 'ic_habit'], 
-                              coords=dict(sample=self.camera_data.sample,
-                                          ic_habit=cloud_properties.ic_habit)).rename("tau550")
-
-        # swir_x = xr.DataArray(data=swir_x_array, 
-        #                      dims=['sample'], 
-        #                      coords=dict(sample=self.camera_data.sample)).rename("swir_x")  
-
-        # swir_time = xr.DataArray(data=swir_time_array, 
-        #                      dims=['sample'], 
-        #                      coords=dict(sample=self.camera_data.sample)).rename("swir_time")  
-                                                  
-        return r_eff, tau550
+        return r_eff.sortby('sample'), tau550.sortby('sample')
     
     def allocated_swir_coordinates(self, swir_coords):
         """Searches for closest fitting retrieval results and returns two 

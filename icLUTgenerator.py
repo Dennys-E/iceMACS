@@ -6,7 +6,7 @@ import tempfile
 import shutil
 import itertools as it
 from multiprocessing import Pool
-from .simulation_tools import write_cloud_file, write_input_file_from_RAM, \
+from .simulation_tools import write_cloud_file_from_heights, write_input_file_from_RAM, \
 get_formatted_uvspec_output, write_wavelength_grid_file, get_index_combinations
 from .conveniences import save_as_netcdf
 from .paths import *
@@ -16,7 +16,7 @@ def get_ic_reflectivity(args):
     
     """Returns the uvspec output for a single ice cloud. Input params are 
     passed as a single zipped argument and listed below. Function is currently 
-    being called by a map function in 'WIRTE_IClut', such that 
+    being called by a map function in, such that 
     'cloud_property_indices' is iterable. This allows for parallel computing of
     the LUT. 
     """
@@ -24,7 +24,7 @@ def get_ic_reflectivity(args):
     (cloud_property_indices, input_file_template, wvl_array, phi_array, 
     umu_array, isza, sza_array, r_eff_array, tau550_array, phi0, 
     cloud_top_distance, wvl_grid_file_path, ic_habit, surface_roughness, 
-    ic_properties, cloud_altitude_grid) = args
+    ic_properties, cloud_depth, cloud_top) = args
         
     ir_eff, itau550 = cloud_property_indices
     
@@ -44,14 +44,8 @@ def get_ic_reflectivity(args):
     phi_str = ' '.join([str(p) for p in phi_array])
     umu_str = ' '.join([str(u) for u in umu_array])
     
-    # Define cloud structure and generate cloud file
-    layers = np.ones(len(cloud_altitude_grid))
-    WC_array = 0.1*layers
-    r_eff_array = r_eff*layers
-    write_cloud_file(cloud_file_path, cloud_altitude_grid, 
-                     WC_array, r_eff_array)
-    cloud_file = np.loadtxt(cloud_file_path)
-    cloud_top = np.max(cloud_file[:,0])
+    cloud_base = cloud_top - cloud_depth
+    write_cloud_file_from_heights(cloud_file_path, cloud_base, cloud_top, r_eff)
     
     if ic_properties == "yang2013":
         habit_mode = "ic_habit_yang2013"
@@ -95,7 +89,8 @@ def get_ic_reflectivity(args):
 
 
 def write_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, sza_array, 
-                r_eff_array, tau550_array, ic_habit_array, cloud_altitude_grid,
+                r_eff_array, tau550_array, ic_habit_array, 
+                cloud_depth=1, cloud_top=7,
                 phi0=0, 
                 cloud_top_distance=1, ic_properties="baum_v36", 
                 surface_roughness="severe", CPUs=8, description=""):
@@ -139,7 +134,8 @@ def write_icLUT(LUTpath, input_file_template, wvl_array, phi_array, umu_array, s
                                it.repeat(ic_habit), 
                                it.repeat(surface_roughness),
                                it.repeat(ic_properties),
-                               it.repeat(cloud_altitude_grid))
+                               it.repeat(cloud_depth),
+                               it.repeat(cloud_top))
             
             print(f"Open pool for {ic_habit} and sza={sza_array[isza]}")
             start_of_pool_time = timer()

@@ -115,6 +115,85 @@ def load_AC3_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
     return nas_scene, swir_scene, vnir_scene
 
 
+def load_cirrushl_scene(start_time, end_time, swir=True, vnir=True, bahamas=True):
+    """Takes specific time in string format and returns nc files as xarray 
+    datasets: 
+    vnir_scene, swir_scene, bahamas_data
+
+    Camera files with variables:
+    'radiance', 'alt', 'act', 'valid'
+
+    All unnecessary variables in camera files are excluded. 
+    Your can exclude each by setting the kwarg False."""
+    
+    day = start_time.strftime("%Y%m%d")
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    if day != end_time.strftime("%Y%m%d"):
+        raise Exception("""Interval Error: start and end time have to be on the
+                        same day!""")
+    
+    # Format slightly larger time frame for nas file, in order to avoid overlap
+    nas_start_time = start_time - datetime.timedelta(seconds=1)
+    nas_end_time = end_time + datetime.timedelta(seconds=1)
+    nas_interval = (nas_start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                    nas_end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    source_folder='/archive/meteo/cirrus-hl/'+day+'/'
+    
+    if swir:
+        print("Load and calibrate SWIR data...")
+        files = sorted(glob.glob(os.path.join(source_folder, 
+                                              "raw/specMACS.swir.*.flatds")))
+        auxdata = glob.glob(os.path.join(source_folder, 
+                                         "auxdata/swir_"+day+"*.log"))
+        swir_cal = """/archive/meteo/eurec4a/specmacs_calibration_data/specMACS_SWIR_cal_EUREC4A.nc"""
+        swir_day = macsproc.load_measurement_files(files, auxdata, swir_cal, 
+                                                   "swir")
+        swir_scene = swir_day.sortby('time').sel(time=slice(*interval))[["radiance", 
+                                                                         "alt", "act", 
+                                                                         "valid"]]
+        
+        
+        del(swir_day)
+    else:
+        swir_scene = None
+
+    if vnir:
+        print("Load and calibrate VNIR data...")
+        files = sorted(glob.glob(os.path.join(source_folder, 
+                                              "raw/specMACS.vnir.*.flatds")))
+        auxdata = glob.glob(os.path.join(source_folder, 
+                                         "auxdata/vnir_"+day+"*.log"))
+        # Same calibration as during EUREC4A but dark current LUT necessary
+        vnir_cal = """/archive/meteo/eurec4a/specmacs_calibration_data/specMACS_VNIR_cal_preEUREC4A_temp.nc"""
+        vnir_day = macsproc.load_measurement_files(files, auxdata, vnir_cal, "vnir")
+        vnir_scene = vnir_day.sel(time=slice(*interval))[["radiance", 
+                                                          "alt", "act", 
+                                                          "valid"]]
+        del(vnir_day)
+    else:
+        vnir_scene = None
+        
+    if bahamas:
+        print("Load bahamas data...")
+        nas_day_path_a = (source_folder+"nas/CIRRUS-HL_HALO_BAHAMAS-SPECMACS-100Hz-final_"
+                        +day+"a.nc")
+        nas_day_path_b = (source_folder+"nas/CIRRUS-HL_HALO_BAHAMAS-SPECMACS-100Hz-final_"
+                        +day+"b.nc")
+        nas_day_a = read_LUT(nas_day_path_a)
+        nas_day_b = read_LUT(nas_day_path_b)
+
+        nas_day = xr.concat([nas_day_a, nas_day_b], dim='time')
+        nas_scene = nas_day.interp(time=swir_scene.time)
+        #del(nas_day)
+    else:
+        nas_scene = None
+        
+    return nas_scene, swir_scene, vnir_scene
+
+
 def map_AC3_scene(start_time, end_time):
     
     day = start_time.strftime("%Y%m%d")
@@ -129,6 +208,64 @@ def map_AC3_scene(start_time, end_time):
     nas_day_path = source_folder+"nas/AC3_HALO_BAHAMAS-SPECMACS-100Hz-final_"+day+"a.nc"
     nas_day = read_LUT(nas_day_path)
     nas_scene = nas_day.sel(time=slice(*interval))
+    
+    nas_scene = nas_day.sel(time=slice(*interval))
+
+    day_trajectory = nas_day.lon.values, nas_day.lat.values
+    scene_trajectory = nas_scene.lon.values, nas_scene.lat.values
+
+    fig, ax = plt.subplots(nrows=1,ncols=1,
+                            subplot_kw={'projection': ccrs.PlateCarree()},
+                            figsize=(16,6))
+
+    # Remove frame 
+    plt.tick_params(axis='x', which='both', bottom=False,
+                    top=False, labelbottom=False)
+    plt.tick_params(axis='y', which='both', right=False,
+                    left=False, labelleft=False)
+    for pos in ['right', 'top', 'bottom', 'left']:
+        plt.gca().spines[pos].set_visible(False)
+
+    #for ax in axes:
+
+    ax.add_feature(cartopy.feature.LAND)
+    ax.add_feature(cartopy.feature.OCEAN, alpha=0.4)
+    ax.add_feature(cartopy.feature.COASTLINE,linewidth=0.6)
+    ax.add_feature(cartopy.feature.BORDERS, linestyle=':',linewidth=0.3)
+    ax.add_feature(cartopy.feature.LAKES, alpha=0.5)
+    ax.add_feature(cartopy.feature.RIVERS)
+
+    ax.plot(*day_trajectory,
+             color='tab:orange', linestyle='--', linewidth=0.6,
+             transform=ccrs.PlateCarree())
+
+    ax.plot(*scene_trajectory,
+            color='red', linewidth=2.5,
+            transform=ccrs.PlateCarree())
+ 
+    return 
+
+
+def map_cirrushl_scene(start_time, end_time):
+    
+    day = start_time.strftime("%Y%m%d")
+    interval = (start_time.strftime("%Y-%m-%dT%H:%M:%S"), 
+                end_time.strftime("%Y-%m-%dT%H:%M:%S"))
+    
+    if day != end_time.strftime("%Y%m%d"):
+        print("Error: Start and end time have to be on the same day!")
+
+    print("Load bahamas data...")
+    source_folder='/archive/meteo/cirrus-hl/'+day+'/'
+
+    nas_day_path_a = (source_folder+"nas/CIRRUS-HL_HALO_BAHAMAS-SPECMACS-100Hz-final_"
+                        +day+"a.nc")
+    nas_day_path_b = (source_folder+"nas/CIRRUS-HL_HALO_BAHAMAS-SPECMACS-100Hz-final_"
+                        +day+"b.nc")
+    nas_day_a = read_LUT(nas_day_path_a)
+    nas_day_b = read_LUT(nas_day_path_b)
+
+    nas_day = xr.concat([nas_day_a, nas_day_b], dim='time')
     
     nas_scene = nas_day.sel(time=slice(*interval))
 

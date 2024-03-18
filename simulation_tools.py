@@ -1,5 +1,5 @@
-# This file is supposed to contain function being used by both ic and 
-# wcLUTgenerator functions
+"""The functions contained in this module are being used to write and format 
+grid files and uvspec input files"""
 
 import numpy as np
 from jinja2 import Template, StrictUndefined
@@ -9,22 +9,40 @@ import os
 import sh
 from .paths import *
 
+
 uvspec = sh.Command(UVSPEC_PATH)
 
 def write_wavelength_grid_file(fpath, wvl_array):                            
-    """Saves array as formated txt to be passed to uvspec"""
+    """Saves wvl array as formated txt to be passed to uvspec"""
     np.savetxt(fpath, wvl_array, delimiter=' ')
     
     return
 
 
 def write_cloud_file(fpath, altitude_grid, WC_array, r_eff_array):
+    """Takes arrays to be formatted to cloud file."""
     
     if any([len(altitude_grid)!=len(WC_array), len(altitude_grid)!=len(WC_array)]):
         print('WARNING: Cloud properties do not fit altitude grid!')
         
     cloud_array = np.transpose(np.vstack((np.flip(altitude_grid), np.flip(WC_array), np.flip(r_eff_array))))
     np.savetxt(fpath, cloud_array, delimiter=' ')
+    
+    return
+
+
+def write_cloud_file_from_heights(fpath, cloud_base, cloud_top, r_eff):
+    """Takes cloud base, cloud top and effective radius and produces file for 
+    homgogeneous cloud with the desired values."""
+
+    altitude_grid = np.array([cloud_base, cloud_top])
+    WC_array = np.array([0.1, 0])
+    r_eff_array = np.array([r_eff, 0])
+        
+    cloud_array = np.transpose(np.vstack((np.flip(altitude_grid), 
+                                          np.flip(WC_array), 
+                                          np.flip(r_eff_array))))
+    np.savetxt(fpath, cloud_array, delimiter=' ', fmt='%f')
     
     return
 
@@ -41,7 +59,8 @@ def write_input_file_from_RAM(input_file_template, generated_input_file_path, in
     return
 
 
-def write_input_file(input_file_template_path, generated_input_file_path, input_file_args):
+def write_input_file(input_file_template_path, generated_input_file_path, 
+                     input_file_args):
     
     f = open(input_file_template_path, 'r')
     input_file_template = f.read()
@@ -64,7 +83,8 @@ def save_plain_uvspec_output_under(input_file_path, output_file_path):
     input_file = f.read()
     f.close()
 
-    result = subprocess.run([UVSPEC_PATH], input = input_file, capture_output=True, encoding='ascii')
+    result = subprocess.run([UVSPEC_PATH], input = input_file, 
+                            capture_output=True, encoding='ascii')
 
     output_temp = result.stdout
     

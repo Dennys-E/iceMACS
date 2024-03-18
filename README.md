@@ -4,11 +4,9 @@ Collection of tools to calibrate and manage SWIR, VNIR and pol cam data from spe
 ## Todos
 * Unify LUT generators, preferably into one single function.
 * Add a git submodules functionality
-* Find better way to organize paths
 * Include functions for polarized retrieval
-* Move repo to gitlab
-* Check for cloud distance parameter 
 * Make the allocation of cloud properties more stable
+* Add halo_height as a free coordinate
 
 - [Structure](#-structure)
 - [Usage](#-usage)
@@ -20,7 +18,7 @@ The submodules in the `iceMACS` package are organized as follows:
 * `conveniences` contains functions that are non-essential to the retrieval but
 are compatible with other functions and sometimes called by the `tools` 
 submodule. For example, loading data from the A(C)³ archive directory, plotting, reading and writing NetCDF files etc.
-* `tools` contains functions to interpret camera data and add new variables, 
+* `tools` contains functions to interpret camera data and LUT data and add new variables, 
 such as reflectivities, ice index and relative view angles. The updated `PixelInterpolator` class is defined here.
 * Rest to be determined...
 
@@ -30,7 +28,7 @@ such as reflectivities, ice index and relative view angles. The updated `PixelIn
 This readme contains the documentation of the most important functions contained in iceMACS but is not exhaustive. There are additional functions that might be useful for you. 
 
 ### SWIR bad pixel interpolation
-Many (AC)³ scenes are relatively dark, with a high solar zenith angle and low cirrus rediance values. Some pixels are shown to be unreliable under these conditions. The `PixelInterpolator` class finds these pixels and interpolates for the entire scene. Additionally, interpolation over invalid pixel from the bad pixel list is performed, analogous to the `runmacs` `BadPixelFixer`.
+Many (AC)³ scenes are relatively dark, with a high solar zenith angle and low cirrus radiance values. Some pixels are shown to be unreliable under these conditions. The `PixelInterpolator` class finds these pixels and interpolates for the entire scene. Additionally, interpolation over invalid pixel from the bad pixel list is performed, analogous to the `runmacs` `BadPixelFixer`.
 Initiate with loaded SWIR dataset, containing the variables `radiance`and `valid` access "badness" signal with
 
 ```python
@@ -145,6 +143,22 @@ scene.cloud_properties_fast_BSR(invertedLUT, LUT.wvl1, LUT.wvl2,
 ```
 
 Here, `LUT` is the `BSRLookupTable` instance that produced the inverted dataset. `interpolate` chooses the method by which the simulations are cut to pixel geometries. `True` interpolates between simulated viewing geometries while `False` chooses the closest existing coordinate.
+
+### Handling of polarized LUT data
+
+Similar to the `BSRLookupTable` class, Stokes parameter data stored in LUT format can be handled with the `PolLookupTable` class. Functionalities include computation of polarization-specific quantities such as the polarized reflectivity and DOLP. Additionally, color channels of pol cameras can be simulated with 
+
+```python
+polLUT.polarized_reflectivity_with_srfs(calibration_file, color='red')
+```
+
+or similarly named functions. Inspection of scattering behavior along the principal plane for LUTs containing relative azimuth coordinates 0° and 180° is facilitated by
+
+```python
+polLUT.over_theta_in_pp()
+```
+
+which automatically transforms `umu` to scattering angle `theta`.
 
 ### Angular habit retrieval
 
